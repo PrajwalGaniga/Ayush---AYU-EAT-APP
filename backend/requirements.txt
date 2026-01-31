@@ -8,3 +8,11 @@ httpx
 google-genai
 python-dotenv
 pymongo[srv]
+fastapi
+uvicorn
+gunicorn
+motor
+bcrypt
+python-dotenv
+google-genai
+ultralytics

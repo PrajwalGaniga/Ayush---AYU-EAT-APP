@@ -1,0 +1,237 @@
+{
+    "metadata": {
+        "project": "AYU-EAT",
+        "total_classes": 31,
+        "ayurvedic_expert_system": "Siddhanta-based"
+    },
+    "food_wisdom": {
+        "0": {
+            "name": "appam",
+            "dosha": "Pitta-Vata pacifying",
+            "virya": "Neutral",
+            "note": "Light and easy on the gut; cooling."
+        },
+        "1": {
+            "name": "beetroot poriyal",
+            "dosha": "Pitta pacifying",
+            "virya": "Shita (Cooling)",
+            "note": "Great for blood purification (Rakta Prasadana)."
+        },
+        "2": {
+            "name": "boiled egg",
+            "dosha": "Vata pacifying; Kapha-Pitta increasing",
+            "virya": "Ushna (Heating)",
+            "note": "Heavy (Guru) quality; provides strength but slows digestion."
+        },
+        "3": {
+            "name": "carrot poriyal",
+            "dosha": "Tridoshic",
+            "virya": "Sama (Neutral)",
+            "note": "Improves eyesight and balances all humors."
+        },
+        "4": {
+            "name": "chicken 65",
+            "dosha": "Pitta-Vata aggravating",
+            "virya": "Teekshna (Sharp/Hot)",
+            "note": "Fried and spicy; increases internal inflammation."
+        },
+        "5": {
+            "name": "chicken briyani",
+            "dosha": "Vata-Pitta aggravating",
+            "virya": "Ushna (Hot)",
+            "note": "Heavy meal; requires strong Agni (digestive fire)."
+        },
+        "6": {
+            "name": "dosa",
+            "dosha": "Pitta increasing",
+            "virya": "Ushna (Heating)",
+            "note": "Fermented; avoid if you have acid reflux."
+        },
+        "7": {
+            "name": "idly",
+            "dosha": "Kapha-Pitta balancing",
+            "virya": "Laghu (Light)",
+            "note": "Steamed and probiotic; the safest Ayurvedic breakfast."
+        },
+        "8": {
+            "name": "kaara chutney",
+            "dosha": "Pitta aggravating",
+            "virya": "Teekshna (Sharp)",
+            "note": "Very spicy; can cause heat in the body."
+        },
+        "9": {
+            "name": "kali",
+            "dosha": "Vata pacifying; Kapha increasing",
+            "virya": "Shita (Cooling)",
+            "note": "Ragi-based; excellent for cooling the system in summer."
+        },
+        "10": {
+            "name": "koozh",
+            "dosha": "Pitta-Vata balancing",
+            "virya": "Shita (Cooling)",
+            "note": "Fermented porridge; natural probiotic for gut cooling."
+        },
+        "11": {
+            "name": "lemon satham",
+            "dosha": "Vata pacifying; Pitta balancing (in moderation)",
+            "virya": "Amla (Sour)",
+            "note": "Stimulates appetite; good for low hunger."
+        },
+        "12": {
+            "name": "medu vadai",
+            "dosha": "Kapha-Pitta aggravating",
+            "virya": "Guru (Heavy)",
+            "note": "Deep-fried; can clog channels (Srotas) if eaten daily."
+        },
+        "13": {
+            "name": "mushroom briyani",
+            "dosha": "Kapha increasing",
+            "virya": "Tamasic/Heavy",
+            "note": "Earthy quality; grounding but hard to digest."
+        },
+        "14": {
+            "name": "mutton briyani",
+            "dosha": "Vata pacifying; Kapha-Pitta aggravating",
+            "virya": "Ati-Guru (Very Heavy)",
+            "note": "Extremely heavy; best for lunch, never dinner."
+        },
+        "15": {
+            "name": "nandu masala",
+            "dosha": "Vata pacifying; Pitta increasing",
+            "virya": "Ushna (Very Hot)",
+            "note": "Crab is heating; good for cold weather, bad for skin heat."
+        },
+        "16": {
+            "name": "nei satham",
+            "dosha": "Tridoshic",
+            "virya": "Ojas-building",
+            "note": "Ghee rice is pure nectar (Amrit) for the tissues."
+        },
+        "17": {
+            "name": "paal kolukattai",
+            "dosha": "Pitta pacifying; Kapha increasing",
+            "virya": "Shita (Cooling)",
+            "note": "Milk-based sweet; very satvic and calming."
+        },
+        "18": {
+            "name": "paneer briyani",
+            "dosha": "Kapha increasing",
+            "virya": "Guru (Heavy)",
+            "note": "Paneer is dense protein; avoid if sedentary."
+        },
+        "19": {
+            "name": "paneer masala",
+            "dosha": "Kapha-Pitta increasing",
+            "virya": "Heavy/Oily",
+            "note": "Rich and fatty; causes sluggishness if eaten late."
+        },
+        "20": {
+            "name": "parupu vadai",
+            "dosha": "Vata aggravating",
+            "virya": "Ruksha (Dry)",
+            "note": "Chana dal based; can cause gas (Vata) if eaten without ginger."
+        },
+        "21": {
+            "name": "pidi kolukattai",
+            "dosha": "Vata-Pitta pacifying",
+            "virya": "Laghu (Light)",
+            "note": "Steamed rice balls; gentle on the stomach."
+        },
+        "22": {
+            "name": "poorna kolukattai",
+            "dosha": "Kapha-Pitta pacifying",
+            "virya": "Satvic",
+            "note": "Coconut and Jaggery; builds Ojas and happiness."
+        },
+        "23": {
+            "name": "prawn thokku",
+            "dosha": "Vata pacifying; Pitta aggravating",
+            "virya": "Ushna (Extremely Hot)",
+            "note": "Can trigger skin rashes due to high heat potency."
+        },
+        "24": {
+            "name": "puthina chutney",
+            "dosha": "Pitta pacifying",
+            "virya": "Shita (Cooling)",
+            "note": "Mint is an excellent digestive cooler."
+        },
+        "25": {
+            "name": "sambar",
+            "dosha": "Tridoshic",
+            "virya": "Balanced",
+            "note": "The perfect carrier for vegetable nutrients."
+        },
+        "26": {
+            "name": "sambar satham",
+            "dosha": "Pitta pacifying",
+            "virya": "Laghu (Light)",
+            "note": "Very easy to digest; good for recovery after illness."
+        },
+        "27": {
+            "name": "satham",
+            "dosha": "Vata-Pitta pacifying",
+            "virya": "Sama (Neutral)",
+            "note": "White rice provides instant energy for the brain."
+        },
+        "28": {
+            "name": "thengai chutney",
+            "dosha": "Pitta pacifying; Kapha increasing",
+            "virya": "Shita (Cooling)",
+            "note": "Coconut balances the heat of spicy food."
+        },
+        "29": {
+            "name": "veg briyani",
+            "dosha": "Balanced (if not too spicy)",
+            "virya": "Moderate",
+            "note": "Fiber-rich and satisfying."
+        },
+        "30": {
+            "name": "ven pongal",
+            "dosha": "Tridoshic",
+            "virya": "Healing",
+            "note": "The ultimate Ayurvedic comfort food; highly recommended."
+        }
+    },
+    "viruddha_ahara_logic": [
+        {
+            "items": [
+                "2",
+                "17"
+            ],
+            "reason": "Egg + Milk based items: Incompatible proteins.",
+            "risk": "High"
+        },
+        {
+            "items": [
+                "15",
+                "17"
+            ],
+            "reason": "Crab + Paal (Milk): Opposite potencies cause skin toxins.",
+            "risk": "Critical"
+        },
+        {
+            "items": [
+                "23",
+                "17"
+            ],
+            "reason": "Prawn + Paal (Milk): Known to trigger allergic reactions in Ayurveda.",
+            "risk": "Critical"
+        },
+        {
+            "items": [
+                "6",
+                "17"
+            ],
+            "reason": "Dosa (Fermented) + Milk: Leads to Ama (toxin) formation.",
+            "risk": "High"
+        },
+        {
+            "items": [
+                "11",
+                "17"
+            ],
+            "reason": "Lemon rice + Milk based: Sour + Milk curdles in the gut.",
+            "risk": "Critical"
+        }
+    ]
+}

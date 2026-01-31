@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+google-generativeai
+python-dotenv
+motor
+pydantic
+httpx
+google-genai
+python-dotenv
+pymongo[srv]

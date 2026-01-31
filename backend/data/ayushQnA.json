@@ -1,0 +1,109 @@
+{
+  "meta": {
+    "version": "3.0",
+    "language_supported": ["en", "kn"],
+    "logic_type": "hierarchical_deep_assessment"
+  },
+  "categories": {
+    "agni_assessment": {
+      "questions": {
+        "AGNI_START": {
+          "question_en": "Namaste. To understand your health, let's analyze your 'Agni' (Digestive Fire). How is your hunger usually?",
+          "question_kn": "ನಮಸ್ತೆ. ನಿಮ್ಮ ಆರೋಗ್ಯವನ್ನು ಅರ್ಥಮಾಡಿಕೊಳ್ಳಲು, ಮೊದಲು ನಿಮ್ಮ 'ಅಗ್ನಿ'ಯನ್ನು (ಜೀರ್ಣಶಕ್ತಿ) ವಿಶ್ಲೇಷಿಸೋಣ. ನಿಮ್ಮ ಹಸಿವು ಸಾಮಾನ್ಯವಾಗಿ ಹೇಗಿರುತ್ತದೆ?",
+          "options": [
+            { "value": "low", "label_en": "I rarely feel hungry", "label_kn": "ನನಗೆ ಹಸಿವು ತುಂಬಾ ಕಡಿಮೆ", "next": "AGNI_MANDA_BOWEL" },
+            { "value": "intense", "label_en": "Very strong and frequent", "label_kn": "ತುಂಬಾ ಹೆಚ್ಚು ಮತ್ತು ಪದೇ ಪದೇ ಹಸಿವಾಗುತ್ತದೆ", "next": "AGNI_TIKSHNA_THIRST" },
+            { "value": "unpredictable", "label_en": "Sometimes high, sometimes zero", "label_kn": "ಕೆಲವೊಮ್ಮೆ ಹೆಚ್ಚು, ಕೆಲವೊಮ್ಮೆ ಹಸಿವೇ ಇರುವುದಿಲ್ಲ", "next": "AGNI_VISHAMA_GAS" }
+          ]
+        },
+        "AGNI_MANDA_BOWEL": {
+          "question_en": "Do you feel heavy in the stomach and have slow bowel movements?",
+          "question_kn": "ನಿಮಗೆ ಹೊಟ್ಟೆ ಭಾರವೆನಿಸುವುದು ಮತ್ತು ಮಲವಿಸರ್ಜನೆ ನಿಧಾನವಾಗುವುದು ಇದೆಯೇ?",
+          "options": [
+            { "value": "yes", "label_en": "Yes, always heavy", "label_kn": "ಹೌದು, ಯಾವಾಗಲೂ ಭಾರವೆನಿಸುತ್ತದೆ", "next": "DOSHA_KAPHA_PHYSICAL" },
+            { "value": "no", "label_en": "Not really", "label_kn": "ಇಲ್ಲ", "next": "REVIEW_REQUIRED" }
+          ]
+        },
+        "AGNI_TIKSHNA_THIRST": {
+          "question_en": "Do you feel excessive thirst and a burning sensation in the throat?",
+          "question_kn": "ನಿಮಗೆ ಅತಿಯಾದ ಬಾಯಾರಿಕೆ ಮತ್ತು ಗಂಟಲಿನಲ್ಲಿ ಉರಿ ಅನುಭವವಾಗುತ್ತದೆಯೇ?",
+          "options": [
+            { "value": "yes", "label_en": "Yes, need water constantly", "label_kn": "ಹೌದು, ಯಾವಾಗಲೂ ನೀರು ಬೇಕು", "next": "DOSHA_PITTA_SKIN" },
+            { "value": "no", "label_en": "No", "label_kn": "ಇಲ್ಲ", "next": "REVIEW_REQUIRED" }
+          ]
+        },
+        "AGNI_VISHAMA_GAS": {
+          "question_en": "Do you often suffer from constipation or dry stools?",
+          "question_kn": "ನಿಮಗೆ ಆಗಾಗ್ಗೆ ಮಲಬದ್ಧತೆ ಅಥವಾ ಮಲ ಒಣಗಿದಂತೆ ಆಗುತ್ತದೆಯೇ?",
+          "options": [
+            { "value": "yes", "label_en": "Yes, irregular patterns", "label_kn": "ಹೌದು, ಅನಿಯಮಿತವಾಗಿದೆ", "next": "DOSHA_VATA_SLEEP" },
+            { "value": "no", "label_en": "No", "label_kn": "ಇಲ್ಲ", "next": "REVIEW_REQUIRED" }
+          ]
+        }
+      }
+    },
+    "dosha_assessment": {
+      "questions": {
+        "DOSHA_VATA_SLEEP": {
+          "question_en": "How is your sleep? Is it light and easily disturbed?",
+          "question_kn": "ನಿಮ್ಮ ನಿದ್ರೆ ಹೇಗಿರುತ್ತದೆ? ಬೇಗನೆ ಎಚ್ಚರವಾಗುತ್ತದೆಯೇ?",
+          "options": [
+            { "value": "yes", "label_en": "Yes, I am a light sleeper", "label_kn": "ಹೌದು, ಸ್ವಲ್ಪ ಶಬ್ದವಾದರೂ ಎಚ್ಚರವಾಗುತ್ತದೆ", "next": "DOSHA_VATA_MENTAL" }
+          ]
+        },
+        "DOSHA_VATA_MENTAL": {
+          "question_en": "Do you often feel anxious, fearful, or move very fast?",
+          "question_kn": "ನಿಮಗೆ ಆಗಾಗ್ಗೆ ಆತಂಕ, ಭಯ ಅಥವಾ ಅತಿಯಾದ ಚಡಪಡಿಕೆ ಉಂಟಾಗುತ್ತದೆಯೇ?",
+          "options": [
+            { "value": "yes", "label_en": "Yes, mind races a lot", "label_kn": "ಹೌದು, ಮನಸ್ಸು ಚಂಚಲವಾಗಿರುತ್ತದೆ", "next": "RESULT_VATA_PRO" }
+          ]
+        },
+        "DOSHA_PITTA_SKIN": {
+          "question_en": "Do you have sensitive skin, prone to rashes or acne?",
+          "question_kn": "ನಿಮ್ಮ ಚರ್ಮವು ಸೂಕ್ಷ್ಮವಾಗಿದ್ದು, ಬೇಗನೆ ಕೆಂಪಾಗುವುದು ಅಥವಾ ಮೊಡವೆಗಳು ಆಗುತ್ತವೆಯೇ?",
+          "options": [
+            { "value": "yes", "label_en": "Yes, very sensitive", "label_kn": "ಹೌದು, ತುಂಬಾ ಸೂಕ್ಷ್ಮ ಚರ್ಮ", "next": "DOSHA_PITTA_EMOTION" }
+          ]
+        },
+        "DOSHA_PITTA_EMOTION": {
+          "question_en": "Do you lose your temper quickly or seek perfection in everything?",
+          "question_kn": "ನಿಮಗೆ ಬೇಗನೆ ಕೋಪ ಬರುತ್ತದೆಯೇ ಅಥವಾ ಎಲ್ಲದರಲ್ಲೂ ಅಚ್ಚುಕಟ್ಟುತನ ಬಯಸುತ್ತೀರಾ?",
+          "options": [
+            { "value": "yes", "label_en": "Yes, easily frustrated", "label_kn": "ಹೌದು, ಬೇಗನೆ ಸಿಟ್ಟು ಬರುತ್ತದೆ", "next": "RESULT_PITTA_PRO" }
+          ]
+        },
+        "DOSHA_KAPHA_PHYSICAL": {
+          "question_en": "Do you have a large body frame and tend to gain weight easily?",
+          "question_kn": "ನಿಮ್ಮ ದೇಹದ ರಚನೆ ದೊಡ್ಡದಾಗಿದ್ದು, ಬೇಗನೆ ತೂಕ ಹೆಚ್ಚುತ್ತದೆಯೇ?",
+          "options": [
+            { "value": "yes", "label_en": "Yes, struggle with weight", "label_kn": "ಹೌದು, ತೂಕ ಇಳಿಸುವುದು ಕಷ್ಟ", "next": "DOSHA_KAPHA_NATURE" }
+          ]
+        },
+        "DOSHA_KAPHA_NATURE": {
+          "question_en": "Are you calm, steady, and sometimes feel lazy to move?",
+          "question_kn": "ನೀವು ಶಾಂತ ಸ್ವಭಾವದವರಾಗಿದ್ದು, ಕೆಲಸ ಮಾಡಲು ಕೆಲವೊಮ್ಮೆ ಆಲಸ್ಯವೆನಿಸುತ್ತದೆಯೇ?",
+          "options": [
+            { "value": "yes", "label_en": "Yes, very stable/calm", "label_kn": "ಹೌದು, ನಾನು ತುಂಬಾ ಶಾಂತ ಸ್ವಭಾವದವನು/ಳು", "next": "RESULT_KAPHA_PRO" }
+          ]
+        }
+      }
+    }
+  },
+  "results": {
+    "RESULT_VATA_PRO": {
+      "prakriti": "Vata (Air & Ether)",
+      "message_en": "CONCLUSION: Your Vata is high, leading to irregular digestion (Vishamagni). LIFESTYLE: Eat warm, unctuous (oily) foods like Ghee. Establish a fixed routine. Avoid cold and dry snacks.",
+      "message_kn": "ತೀರ್ಮಾನ: ನಿಮ್ಮ ದೇಹದಲ್ಲಿ 'ವಾತ' ಹೆಚ್ಚಾಗಿದೆ, ಇದು ಜೀರ್ಣಕ್ರಿಯೆಯನ್ನು ಅಸ್ಥಿರಗೊಳಿಸುತ್ತದೆ (ವಿಷಮಾಗ್ನಿ). ಜೀವನಶೈಲಿ: ಬೆಚ್ಚಗಿನ ಮತ್ತು ತುಪ್ಪದಂತಹ ಜಿಡ್ಡಿನ ಆಹಾರ ಸೇವಿಸಿ. ಪ್ರತಿದಿನ ಸರಿಯಾದ ಸಮಯಕ್ಕೆ ಊಟ ಮಾಡಿ. ತಂಪು ಮತ್ತು ಒಣ ಪದಾರ್ಥಗಳನ್ನು ತಪ್ಪಿಸಿ."
+    },
+    "RESULT_PITTA_PRO": {
+      "prakriti": "Pitta (Fire & Water)",
+      "message_en": "CONCLUSION: You have high Pitta, causing sharp digestion (Tikshnagni). LIFESTYLE: Prioritize cooling foods like coconut, cucumber, and cilantro. Avoid spicy, sour, and fermented foods.",
+      "message_kn": "ತೀರ್ಮಾನ: ನಿಮ್ಮ ದೇಹದಲ್ಲಿ 'ಪಿತ್ತ' ಹೆಚ್ಚಾಗಿದ್ದು, ತೀವ್ರವಾದ ಜೀರ್ಣಕ್ರಿಯೆಯನ್ನು ಉಂಟುಮಾಡುತ್ತದೆ (ತೀಕ್ಷ್ಣಾಗ್ನಿ). ಜೀವನಶೈಲಿ: ತೆಂಗಿನಕಾಯಿ, ಸೌತೆಕಾಯಿ ಮತ್ತು ಕೊತ್ತಂಬರಿಯಂತಹ ತಂಪು ಪದಾರ್ಥಗಳಿಗೆ ಆದ್ಯತೆ ನೀಡಿ. ಖಾರ, ಹುಳಿ ಮತ್ತು ಹುದುಗಿಸಿದ ಆಹಾರವನ್ನು ತಪ್ಪಿಸಿ."
+    },
+    "RESULT_KAPHA_PRO": {
+      "prakriti": "Kapha (Earth & Water)",
+      "message_en": "CONCLUSION: Kapha dominance is causing slow digestion (Mandagni). LIFESTYLE: Focus on light, warm, and spicy foods. Avoid heavy sweets, cold dairy, and sleeping during the day.",
+      "message_kn": "ತೀರ್ಮಾನ: 'ಕಫ' ಹೆಚ್ಚಾಗಿರುವುದರಿಂದ ನಿಮ್ಮ ಜೀರ್ಣಕ್ರಿಯೆ ನಿಧಾನವಾಗಿದೆ (ಮಂದಾಗ್ನಿ). ಜೀವನಶೈಲಿ: ಹಗುರವಾದ, ಬಿಸಿ ಮತ್ತು ಸಾಂಬಾರ ಪದಾರ್ಥಗಳಿರುವ ಆಹಾರ ಸೇವಿಸಿ. ಅತಿಯಾದ ಸಿಹಿ, ತಂಪು ಹಾಲಿನ ಉತ್ಪನ್ನಗಳು ಮತ್ತು ಹಗಲು ನಿದ್ರೆಯನ್ನು ತಪ್ಪಿಸಿ."
+    }
+  }
+}

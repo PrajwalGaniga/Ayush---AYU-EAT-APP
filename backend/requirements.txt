@@ -1,18 +1,21 @@
+# Web Server & Framework
 fastapi
 uvicorn[standard]
-google-generativeai
-python-dotenv
-motor
-pydantic
-httpx
-google-genai
-python-dotenv
-pymongo[srv]
-fastapi
-uvicorn
 gunicorn
+python-multipart
+
+# Database (MongoDB Atlas & Motor)
 motor
+pymongo[srv]
+
+# Security & Environment
 bcrypt
 python-dotenv
+pydantic
+
+# AI & Computer Vision
 google-genai
 ultralytics
+
+# Utilities
+httpx

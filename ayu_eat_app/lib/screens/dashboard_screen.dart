@@ -11,6 +11,7 @@ import 'camera_screen.dart';
 import 'weekly_checklist_screen.dart';
 import 'chat_screen.dart';
 import 'growth_summary_screen.dart';
+import '../services/local_storage.dart';
 import 'recipe_lab_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -34,27 +35,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // --- LOGIC: DATA FETCHING ---
+  // --- LOGIC: DATA FETCHING (Now with Offline Support) ---
   Future<void> _fetchFullData() async {
     setState(() => _isLoading = true);
     try {
       final results = await Future.wait([
-        http.get(Uri.parse(ApiConfig.userProfile(widget.userPhone))).timeout(const Duration(seconds: 10)),
-        http.get(Uri.parse("${ApiConfig.baseUrl}/weekly_summary/${widget.userPhone}")).timeout(const Duration(seconds: 10)),
+        http.get(Uri.parse(ApiConfig.userProfile(widget.userPhone))).timeout(const Duration(seconds: 5)),
+        http.get(Uri.parse("${ApiConfig.baseUrl}/weekly_summary/${widget.userPhone}")).timeout(const Duration(seconds: 5)),
       ]);
 
-      if (!mounted) return;
+      if (results[0].statusCode == 200 && results[1].statusCode == 200) {
+        final profile = jsonDecode(results[0].body);
+        final summary = jsonDecode(results[1].body);
 
+        // SAVE TO CACHE
+        await LocalCache.save("profile_${widget.userPhone}", profile);
+        await LocalCache.save("summary_${widget.userPhone}", summary);
+
+        if (!mounted) return;
+        setState(() {
+          userData = profile['data'];
+          weeklySummary = summary;
+          _isLoading = false;
+        });
+        return;
+      }
+    } catch (e) {
+      debugPrint("Offline mode: Loading cached dashboard data.");
+    }
+
+    // FALLBACK: Load from Cache if Network Fails
+    final cachedProfile = await LocalCache.get("profile_${widget.userPhone}");
+    final cachedSummary = await LocalCache.get("summary_${widget.userPhone}");
+
+    if (mounted) {
       setState(() {
-        if (results[0].statusCode == 200) {
-          userData = jsonDecode(results[0].body)['data'];
-        }
-        if (results[1].statusCode == 200) {
-          weeklySummary = jsonDecode(results[1].body);
-        }
+        if (cachedProfile != null) userData = cachedProfile['data'];
+        if (cachedSummary != null) weeklySummary = cachedSummary;
         _isLoading = false;
       });
-    } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 

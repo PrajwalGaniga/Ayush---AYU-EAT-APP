@@ -572,3 +572,8 @@ async def list_my_models():
     except Exception as e:
         print(f"DEBUG - List Models Error: {e}")
         return {"error": str(e)}
+
+# main.py
+@app.get("/health")
+async def health_check():
+    return {"status": "ready", "timestamp": datetime.now().isoformat()}

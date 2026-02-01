@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../theme/ayu_theme.dart';
 import '../api/api_config.dart';
+import '../services/local_storage.dart';
 
 class WeeklyChecklistScreen extends StatefulWidget {
   final String userPhone;
@@ -66,21 +67,37 @@ class _WeeklyChecklistScreenState extends State<WeeklyChecklistScreen> {
   Future<void> _fetchUserTasks() async {
     try {
       final response = await http.get(Uri.parse(ApiConfig.userProfile(widget.userPhone)))
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body)['data'];
+        final data = jsonDecode(response.body);
+        // SAVE TO CACHE
+        await LocalCache.save("checklist_${widget.userPhone}", data);
+        
         if (mounted) {
           setState(() {
-            _tasks = data['weekly_tasks'] ?? [];
-            _ojasScore = data['ojas_score'] ?? 0;
-            _currentDay = data['current_day'] ?? 1;
+            _tasks = data['data']['weekly_tasks'] ?? [];
+            _ojasScore = data['data']['ojas_score'] ?? 0;
+            _currentDay = data['data']['current_day'] ?? 1;
             _isLoading = false;
           });
         }
+        return;
       }
     } catch (e) {
-      debugPrint("Sync Error: $e");
+      debugPrint("Offline mode: Loading cached rituals.");
+    }
+
+    // FALLBACK: Load from Cache
+    final cached = await LocalCache.get("checklist_${widget.userPhone}");
+    if (mounted && cached != null) {
+      setState(() {
+        _tasks = cached['data']['weekly_tasks'] ?? [];
+        _ojasScore = cached['data']['ojas_score'] ?? 0;
+        _currentDay = cached['data']['current_day'] ?? 1;
+        _isLoading = false;
+      });
+    } else {
       if (mounted) setState(() => _isLoading = false);
     }
   }

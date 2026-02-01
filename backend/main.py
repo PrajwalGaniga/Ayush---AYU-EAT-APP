@@ -232,89 +232,133 @@ with open("data/ayu_knowledge.json", "r") as f:
 from datetime import datetime
 
 # FIXED: Vision Engine lookup using string IDs
+# 1. Global variable initialized to None to save RAM on startup
+model = None 
+
 @app.post("/scan_meal")
 async def scan_meal(file: UploadFile = File(...)):
-    file_path = f"temp_{file.filename}"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    results = model(file_path)
-    detected_items = []
+    global model
     
-    for box in results[0].boxes:
-        idx = str(int(box.cls)) # CRITICAL: Map numeric index to JSON string key "25"
-        info = ayu_db["food_wisdom"].get(idx)
-        if info:
-            detected_items.append({
-                "name": info["name"],
-                "dosha": info["dosha"],
-                "virya": info["virya"],
-                "impact": info["note"]
-            })
-    return {"items": detected_items}
+    # 2. Lazy Load: Only load the heavy YOLO engine when actually needed
+    if model is None:
+        print("🚀 Loading YOLO model into memory...")
+        # Ensure the path matches your project structure
+        model = YOLO("models/best.pt") 
 
-# Load the Q&A Knowledge Base
-with open("data/ayushQnA.json", "r", encoding="utf-8") as f:
-    ayush_qna = json.load(f)
+    # 3. Save the uploaded file temporarily
+    file_path = f"temp_{file.filename}"
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # 4. Run detection
+        results = model(file_path)
+        detected_items = []
+        
+        for box in results[0].boxes:
+            # Map numeric index to JSON string key for knowledge base lookup
+            idx = str(int(box.cls)) 
+            info = ayu_db["food_wisdom"].get(idx)
+            if info:
+                detected_items.append({
+                    "name": info["name"],
+                    "dosha": info["dosha"],
+                    "virya": info["virya"],
+                    "impact": info["note"]
+                })
+        
+        return {"items": detected_items}
+
+    finally:
+        # 5. Cleanup: Always delete the temp file to prevent disk bloat
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+import os
+
+# Get the absolute path to the folder containing main.py
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Load the Q&A Knowledge Base using an absolute path
+qna_path = os.path.join(BASE_DIR, "data", "ayushQnA.json")
+
+try:
+    with open(qna_path, "r", encoding="utf-8") as f:
+        ayush_qna = json.load(f)
+    print("✅ Chatbot Knowledge Base loaded successfully.")
+except Exception as e:
+    print(f"❌ CRITICAL ERROR: Could not load chatbot data: {e}")
+    ayush_qna = {"categories": {}, "results": {}} # Fallback to prevent crash
+
 @app.post("/chat_query")
 async def chat_query(data: dict = Body(...)):
     node_id = data.get("current_node", "AGNI_Q1")
     choice_value = data.get("user_choice")
     lang = data.get("lang", "en")
-    phone = data.get("phone") # Required to save to the correct user
+    phone = data.get("phone")
 
-    # 1. Handle Result Saving Logic
+    # 1. Handle Result Saving Logic (When user reaches the end)
     if "RESULT" in node_id or node_id == "REVIEW_REQUIRED":
-        res = ayush_qna["results"][node_id]
-        
-        # SMART MOVE: Save this assessment to the user's history array
+        res = ayush_qna.get("results", {}).get(node_id)
+        if not res:
+            raise HTTPException(status_code=404, detail="Result node not found")
+
         assessment_entry = {
             "timestamp": datetime.now().isoformat(),
             "prakriti": res.get("prakriti", "Unknown"),
             "agni": res.get("agni", "Unknown"),
-            "message": res[f"message_{lang}"],
+            "message": res.get(f"message_{lang}", res.get("message_en", "Assessment complete.")),
             "node_reached": node_id
         }
         
+        # Save to DB if phone is provided
         if phone:
             await user_collection.update_one(
                 {"phone": phone},
                 {"$push": {"assessment_history": assessment_entry}}
             )
 
-        return {
-            "type": "result",
-            "data": assessment_entry
-        }
+        return {"type": "result", "data": assessment_entry}
 
-    # 2. Existing Hierarchical Navigation Logic
-    current_node = ayush_qna["categories"]["agni_assessment"]["questions"].get(node_id) or \
-                   ayush_qna["categories"]["dosha_assessment"]["questions"].get(node_id)
+    # 2. Extract Question Node
+    # We look in both Agni and Dosha categories
+    questions_pool = {
+        **ayush_qna.get("categories", {}).get("agni_assessment", {}).get("questions", {}),
+        **ayush_qna.get("categories", {}).get("dosha_assessment", {}).get("questions", {})
+    }
+    
+    current_node = questions_pool.get(node_id)
     
     if not current_node:
-        raise HTTPException(status_code=404, detail="Node not found")
+        print(f"🚨 Bot Error: Node {node_id} not found in JSON pool.")
+        raise HTTPException(status_code=404, detail=f"Node {node_id} not found")
 
-    next_node_id = "AGNI_Q1"
+    # 3. Determine Next Node
+    next_node_id = node_id # Default to stay on same if no choice
     if choice_value:
-        for opt in current_node["options"]:
+        for opt in current_node.get("options", []):
             if opt["value"] == choice_value:
                 next_node_id = opt["next"]
                 break
 
-    next_node = ayush_qna["categories"]["agni_assessment"]["questions"].get(next_node_id) or \
-                ayush_qna["categories"]["dosha_assessment"]["questions"].get(next_node_id)
+    next_node = questions_pool.get(next_node_id)
 
-    # If the next step is actually a result node
+    # 4. Recursive Transition (If the next node is actually a Result)
     if not next_node: 
-        # Trigger the result logic recursively for the next_node_id
         return await chat_query({"current_node": next_node_id, "lang": lang, "phone": phone})
 
+    # 5. Return structured question
     return {
         "type": "question",
         "node_id": next_node_id,
-        "question": next_node[f"question_{lang}"],
-        "options": [{"value": o["value"], "label": o[f"label_{lang}"]} for o in next_node["options"]]
+        "question": next_node.get(f"question_{lang}", next_node.get("question_en")),
+        "options": [
+            {"value": o["value"], "label": o.get(f"label_{lang}", o.get("label_en"))} 
+            for o in next_node.get("options", [])
+        ]
     }
+
+
 from datetime import datetime
 # UPDATED: Task completion now triggers an Ojas update
 

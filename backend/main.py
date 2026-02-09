@@ -2,7 +2,7 @@ from fastapi import FastAPI, Body, HTTPException
 from database import user_collection, user_helper
 import bcrypt
 from pydantic import BaseModel
-
+from fastapi import FastAPI, Body, HTTPException, File, UploadFile, BackgroundTasks
 app = FastAPI()
 from google import genai
 
@@ -12,15 +12,12 @@ async def root():
 
 @app.post("/register")
 async def register_user(user_data: dict = Body(...)):
-    # 1. Check if phone exists
     existing_user = await user_collection.find_one({"phone": user_data['phone']})
     if existing_user:
         raise HTTPException(status_code=400, detail="Phone already exists")
     
-    # 2. Secure Password Hashing
     hashed_pass = bcrypt.hashpw(user_data['password'].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
-    # 3. Create Clean User Document
     new_user = {
         "fullname": user_data['fullname'],
         "phone": user_data['phone'],
@@ -29,9 +26,16 @@ async def register_user(user_data: dict = Body(...)):
         "onboarding_complete": False, 
         "ojas_score": 40, 
         "current_day": 1,
-        "weekly_tasks": [], # FIXED: Empty list triggers full injection later
+        "weekly_tasks": [],
         "assessment_history": [],
-        "growth_history": [{"score": 40, "time": datetime.now()}]
+        "growth_history": [{"score": 40, "time": datetime.now()}],
+        # NEW: Medical Profile Placeholders
+        "health_profile": {
+            "conditions": [],
+            "allergies": [],
+            "weight": None,
+            "activity_level": "moderate"
+        }
     }
     
     await user_collection.insert_one(new_user)
@@ -163,6 +167,34 @@ DINACHARYA_MASTER = {
     ]
 }
 
+@app.post("/update_onboarding/{phone}")
+async def update_onboarding(phone: str, data: dict = Body(...)):
+    """
+    Handles both Prakriti Quiz and the new Health Profile.
+    """
+    # 1. Calculate Prakriti
+    prakriti_results = calculate_prakriti(data.get('quiz_answers', []))
+    dominant = prakriti_results['dominant']
+    
+    # 2. Extract Medical Profile
+    health_profile = data.get('health_profile', {})
+    
+    initial_tasks = DINACHARYA_WEEKLY.get(dominant, DINACHARYA_WEEKLY["Vata"])
+    
+    result = await user_collection.update_one(
+        {"phone": phone},
+        {"$set": {
+            "prakriti": prakriti_results,
+            "health_profile": health_profile, # Save medical data
+            "onboarding_complete": True,
+            "weekly_tasks": initial_tasks
+        }}
+    )
+    
+    if result.modified_count == 1:
+        return {"status": "success", "data": prakriti_results}
+    raise HTTPException(status_code=404, detail="User not found")
+
 @app.get("/user_profile/{phone}")
 async def get_user_profile(phone: str):
     # 1. Fetch user from MongoDB
@@ -238,41 +270,76 @@ model = None
 @app.post("/scan_meal")
 async def scan_meal(file: UploadFile = File(...)):
     global model
-    
-    # 2. Lazy Load: Only load the heavy YOLO engine when actually needed
     if model is None:
-        print("🚀 Loading YOLO model into memory...")
-        # Ensure the path matches your project structure
         model = YOLO("models/best.pt") 
 
-    # 3. Save the uploaded file temporarily
     file_path = f"temp_{file.filename}"
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # 4. Run detection
         results = model(file_path)
         detected_items = []
         
         for box in results[0].boxes:
-            # Map numeric index to JSON string key for knowledge base lookup
             idx = str(int(box.cls)) 
             info = ayu_db["food_wisdom"].get(idx)
             if info:
                 detected_items.append({
+                    "id": idx,
                     "name": info["name"],
-                    "dosha": info["dosha"],
-                    "virya": info["virya"],
-                    "impact": info["note"]
+                    "dosha_impact": info["dosha"],
+                    "virya": info["virya"]
                 })
         
+        # Step 1: Return identification to Flutter for confirmation
         return {"items": detected_items}
-
     finally:
-        # 5. Cleanup: Always delete the temp file to prevent disk bloat
         if os.path.exists(file_path):
             os.remove(file_path)
+
+@app.post("/confirm_scan/{phone}")
+async def confirm_scan(phone: str, data: dict = Body(...)):
+    """
+    Step 2 & 3: User confirms identification and provides context (Home/Hotel).
+    """
+    is_homemade = data.get("is_homemade", True)
+    item_id = data.get("item_id")
+    
+    info = ayu_db["food_wisdom"].get(item_id)
+    
+    # Logic: Restaurant penalty
+    ojas_impact = 10 if is_homemade else 4
+    
+    # Store temporary "active meal" to trigger 2-hour feedback later
+    await user_collection.update_one(
+        {"phone": phone},
+        {"$set": {"last_meal": {"item": info['name'], "source": "home" if is_homemade else "hotel", "time": datetime.now()}}}
+    )
+    
+    return {
+        "status": "success",
+        "impact": info["note"],
+        "is_compatible": True, # Placeholder for Viruddha check logic
+        "ojas_change": ojas_impact
+    }
+
+@app.get("/post_meal_status/{phone}")
+async def get_post_meal_questions(phone: str):
+    """
+    The 2-hour feedback questionnaire.
+    """
+    user = await user_collection.find_one({"phone": phone})
+    last_meal = user.get("last_meal", {})
+    
+    return {
+        "message": f"You ate {last_meal.get('item')} from a {last_meal.get('source')} 2 hours ago.",
+        "questions": [
+            "Are you feeling heavy or bloated?",
+            "Is there any acidity or burning sensation?",
+            "Do you feel energetic or sleepy?"
+        ]
+    }
 
 import os
 
@@ -280,28 +347,63 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Load the Q&A Knowledge Base using an absolute path
+# main.py - Improved Debug Loading
 qna_path = os.path.join(BASE_DIR, "data", "ayushQnA.json")
+
+ayush_qna = {}
 
 try:
     with open(qna_path, "r", encoding="utf-8") as f:
         ayush_qna = json.load(f)
-    print("✅ Chatbot Knowledge Base loaded successfully.")
-except Exception as e:
-    print(f"❌ CRITICAL ERROR: Could not load chatbot data: {e}")
-    ayush_qna = {"categories": {}, "results": {}} # Fallback to prevent crash
+    
+    # SENIOR DEBUG: Verify the structure immediately
+    top_keys = list(ayush_qna.keys())
+    print(f"✅ JSON Loaded. Top-level keys found: {top_keys}")
+    
+    if "categories" in ayush_qna:
+        categories = list(ayush_qna["categories"].keys())
+        print(f"📂 Categories found: {categories}")
+    else:
+        print("⚠️ CRITICAL: Key 'categories' NOT found in JSON. Check your JSON file structure!")
 
+except Exception as e:
+    print(f"❌ JSON LOAD ERROR: {e}")
 @app.post("/chat_query")
 async def chat_query(data: dict = Body(...)):
+    # 1. Capture Input Data
     node_id = data.get("current_node", "AGNI_Q1")
     choice_value = data.get("user_choice")
     lang = data.get("lang", "en")
     phone = data.get("phone")
 
-    # 1. Handle Result Saving Logic (When user reaches the end)
+    print(f"\n--- 🤖 CHAT DEBUG START ---")
+    print(f"📍 Current Node Requested: {node_id}")
+    print(f"🔘 User Choice: {choice_value}")
+
+    # 2. Safety Check: Is the JSON even loaded?
+    if not ayush_qna:
+        print("❌ CRITICAL: 'ayush_qna' dictionary is EMPTY. Check JSON loading at startup.")
+        raise HTTPException(status_code=500, detail="Knowledge base not loaded on server.")
+
+    # 3. Build Question Pool with detailed tracking
+    categories = ayush_qna.get("categories", {})
+    agni_qs = categories.get("agni_assessment", {}).get("questions", {})
+    dosha_qs = categories.get("dosha_assessment", {}).get("questions", {})
+    
+    questions_pool = {**agni_qs, **dosha_qs}
+    
+    print(f"📊 Total Nodes in Pool: {len(questions_pool)}")
+    print(f"🔑 Available Node IDs: {list(questions_pool.keys())[:10]}... (showing first 10)")
+
+    # 4. Handle Result Logic (End of Tree)
     if "RESULT" in node_id or node_id == "REVIEW_REQUIRED":
-        res = ayush_qna.get("results", {}).get(node_id)
+        print(f"🏁 Result Node Reached: {node_id}")
+        results_map = ayush_qna.get("results", {})
+        res = results_map.get(node_id)
+        
         if not res:
-            raise HTTPException(status_code=404, detail="Result node not found")
+            print(f"❌ ERROR: Result node '{node_id}' missing from 'results' key in JSON.")
+            raise HTTPException(status_code=404, detail=f"Result node {node_id} not found")
 
         assessment_entry = {
             "timestamp": datetime.now().isoformat(),
@@ -311,8 +413,8 @@ async def chat_query(data: dict = Body(...)):
             "node_reached": node_id
         }
         
-        # Save to DB if phone is provided
         if phone:
+            print(f"💾 Saving assessment to DB for phone: {phone}")
             await user_collection.update_one(
                 {"phone": phone},
                 {"$push": {"assessment_history": assessment_entry}}
@@ -320,34 +422,39 @@ async def chat_query(data: dict = Body(...)):
 
         return {"type": "result", "data": assessment_entry}
 
-    # 2. Extract Question Node
-    # We look in both Agni and Dosha categories
-    questions_pool = {
-        **ayush_qna.get("categories", {}).get("agni_assessment", {}).get("questions", {}),
-        **ayush_qna.get("categories", {}).get("dosha_assessment", {}).get("questions", {})
-    }
-    
+    # 5. Extract Question Node
     current_node = questions_pool.get(node_id)
     
     if not current_node:
-        print(f"🚨 Bot Error: Node {node_id} not found in JSON pool.")
-        raise HTTPException(status_code=404, detail=f"Node {node_id} not found")
+        print(f"🚨 FAIL: Node '{node_id}' not found in the constructed pool.")
+        # Diagnostic: Check if keys are actually under 'categories -> questions' directly
+        top_keys = list(ayush_qna.keys())
+        print(f"💡 Hint: Check your JSON nesting. Top-level keys: {top_keys}")
+        raise HTTPException(status_code=404, detail=f"Node {node_id} not found in database.")
 
-    # 3. Determine Next Node
-    next_node_id = node_id # Default to stay on same if no choice
+    # 6. Determine Next Node
+    next_node_id = node_id 
     if choice_value:
+        found_choice = False
         for opt in current_node.get("options", []):
             if opt["value"] == choice_value:
                 next_node_id = opt["next"]
+                found_choice = True
+                print(f"➡️ Choice Match! Next node will be: {next_node_id}")
                 break
+        if not found_choice:
+            print(f"⚠️ WARNING: User choice '{choice_value}' did not match any options in {node_id}")
 
     next_node = questions_pool.get(next_node_id)
 
-    # 4. Recursive Transition (If the next node is actually a Result)
+    # 7. Recursive Transition (If the next step is a result)
     if not next_node: 
+        print(f"🔄 Node '{next_node_id}' is not a question. Triggering result logic...")
         return await chat_query({"current_node": next_node_id, "lang": lang, "phone": phone})
 
-    # 5. Return structured question
+    print(f"✅ Returning Question: {next_node_id}")
+    print(f"--- 🤖 CHAT DEBUG END ---\n")
+
     return {
         "type": "question",
         "node_id": next_node_id,
@@ -357,7 +464,6 @@ async def chat_query(data: dict = Body(...)):
             for o in next_node.get("options", [])
         ]
     }
-
 
 from datetime import datetime
 # UPDATED: Task completion now triggers an Ojas update
@@ -477,128 +583,126 @@ import os
 import json
 
 
-
-# 1. MODERN SETUP (2026 Standards)
-# Keep your API key in an environment variable for security
-
-#client = genai.Client(api_key=GEMINI_KEY)
-
-
-# --- 1. CONFIGURATION ---
-# Use the stable v1 API version to avoid common beta-related 404 errors.
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
-# Force 'v1beta' because it is the only version that fully supports 
-# these JSON schema fields for developer API keys.
-# Create two separate clients to hit different API endpoints
-# Force 'v1beta' for the new models
-# Force v1beta: It is the only endpoint that supports JSON Schema for free keys.
+from database import database as db, user_collection, user_helper
+history_collection = db.get_collection("recipe_history")
+# 2. CLIENT CONFIGURATION (Direct Key for Local Stability)
+# Forced v1beta for JSON Schema support with developer keys
+GEMINI_API_KEY = "AIzaSyApBq1X_ae20e02BgOsLCtcOyzNd2cyq0c"
 client = genai.Client(
-    api_key="AIzaSyBFMro2YIc2c8cOEMTmNTUglpGCYhU5CsE",
-    http_options={'api_version': 'v1beta'} # Required for JSON Schema
+    api_key=GEMINI_API_KEY,
+    http_options={'api_version': 'v1beta'}
 )
-import json
-import logging
-from fastapi import Body, HTTPException
-from google.genai import types
-# Set up logging for professional debugging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-from fastapi import BackgroundTasks
-# New collection for history
-# 1. Update your imports at the top of main.py
-from database import database, user_collection # Import the correct database object
 
-# 2. Use 'database' instead of 'db' to define your new collection
-history_collection = database.get_collection("recipe_history") # Corrected from 'db'
+# 3. BACKGROUND TASK: Save to History
+async def save_to_history(phone: str, ingredients: list, recipe: dict):
+    """Saves a permanent log of the medicinal recipe."""
+    try:
+        history_entry = {
+            "phone": phone,
+            "timestamp": datetime.now(),
+            "ingredients": ingredients,
+            "recipe_name": recipe.get("recipe_name"),
+            "full_recipe": recipe 
+        }
+        await history_collection.insert_one(history_entry)
+        print(f"✅ History saved for {phone}: {recipe.get('recipe_name')}")
+    except Exception as e:
+        print(f"❌ History Save Error: {e}")
 
-def save_to_history(phone: str, ingredients: list, recipe: dict):
-    """Saves recipe to user's personal timeline."""
-    history_entry = {
-        "phone": phone,
-        "timestamp": datetime.utcnow(),
-        "ingredients": ingredients,
-        "recipe_name": recipe.get("recipe_name"),
-        "full_recipe": recipe # Store full JSON for 'Know More' view
-    }
-    history_collection.insert_one(history_entry)
-
+# 4. ENHANCED RECIPE GENERATOR
 @app.post("/generate_recipe/{phone}")
 async def generate_recipe(phone: str, bg_tasks: BackgroundTasks, ingredients: list = Body(...)):
-    # 1. Fetch Clinical Context (Existing Logic)
+    print(f"\n--- 🍳 AI KITCHEN DEBUG START ---")
+    print(f"📍 Requesting Phone: {phone}")
+    print(f"🛒 Ingredients Selected: {ingredients}")
+
+    # A. Fetch Clinical Data from User Document
     user = await user_collection.find_one({"phone": phone})
     if not user:
+        print(f"❌ FAIL: User {phone} not found in DB.")
         raise HTTPException(status_code=404, detail="User not found")
     
+    # B. Extract Context
     prakriti = user.get("prakriti", {}).get("dominant", "Balanced")
-    history = user.get("assessment_history", [])
-    agni = history[-1].get("agni", "Sama Agni") if history else "Sama Agni"
+    health = user.get("health_profile", {})
+    conditions = health.get("conditions", [])
+    allergies = health.get("allergies", [])
+    
+    # C. Get current Agni from last assessment
+    assessments = user.get("assessment_history", [])
+    agni = assessments[-1].get("agni", "Sama Agni") if assessments else "Sama Agni"
 
-    # 2. Advanced Prompt (As provided previously)
+    print(f"🧬 Bio-Profile: {prakriti} | {agni}")
+    print(f"🏥 Medical: {conditions} | 🚫 Allergies: {allergies}")
+
+    # D. THE PRODUCTION-READY "MASTER VAIDYA" PROMPT
     prompt = f"""
-Act as a Master Vaidya and a Michelin-star Chef specialized in Ayurvedic Nutrition. 
-Your goal is to create a medicinal, healing recipe specifically for a person with:
-- Dominant Dosha (Prakriti): {prakriti}
-- Digestive Fire (Agni): {agni}
-- Available Ingredients: {', '.join(ingredients)}
+Act as a Master Vaidya (Ayurvedic Doctor) and a Culinary Nutritionist. 
+Create a strictly medicinal, healing recipe for a person with the following clinical profile:
+
+1. Dominant Dosha (Prakriti): {prakriti}
+2. Digestive Power (Agni): {agni}
+3. Medical Conditions: {', '.join(conditions) if conditions else 'General Wellness'}
+4. Strict Allergies: {', '.join(allergies) if allergies else 'None'}
+5. Available Ingredients: {', '.join(ingredients)}
 
 STRICT REQUIREMENTS:
-1. RECIPE NAME: Provide a creative name in both English and Kannada (e.g., Healing Khichdi - ಚಿಕಿತ್ಸಕ ಖಿಚಡಿ).
-2. LOGIC: Explain exactly how these ingredients balance the {prakriti} dosha and improve {agni} in 2-3 sentences (Bilingual).
-3. INSTRUCTIONS: Provide 5-7 detailed cooking steps. Each step MUST contain the English instruction followed by the Kannada translation.
-4. YOUTUBE: Generate a highly specific search query for this dish to find the best video tutorial.
-5. OJAS: Assign an Ojas Impact score between 5-15 based on the prana of the ingredients.
+- RECIPE NAME: Provide a creative name in both English and Kannada (e.g., Healing Ginger Tea - ಶುಂಠಿ ಚಹಾ).
+- CLINICAL REASONING: Explain WHY this recipe is prescribed. Reference how it balances {prakriti}, supports {agni}, and manages {', '.join(conditions)}. (Bilingual: 3 sentences total).
+- SAFETY CHECK: You MUST NOT use any ingredients that match the user's allergies ({', '.join(allergies)}).
+- INSTRUCTIONS: 5-7 bilingual cooking steps.
+- OJAS: Assign a vitality score from 5-15 based on the prana of ingredients.
 
-OUTPUT FORMAT:
-Return ONLY a JSON object. Do not include any conversational text.
+Return ONLY a JSON object.
 """
 
-    # 3. Failover Matrix
-    for model_id in ["gemini-3-flash-preview", "gemini-2.5-flash"]:
-        try:
-            response = client.models.generate_content(
-                model=model_id,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema={
-                        "type": "OBJECT",
-                        "properties": {
-                            "recipe_name": {"type": "STRING"},
-                            "ayurvedic_benefit": {"type": "STRING"},
-                            "instructions": {"type": "ARRAY", "items": {"type": "STRING"}},
-                            "youtube_query": {"type": "STRING"},
-                            "ojas_impact": {"type": "INTEGER"}
-                        },
-                        "required": ["recipe_name", "instructions"]
-                    }
-                )
+    try:
+        # E. AI Execution with Schema Enforcement
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema={
+                    "type": "OBJECT",
+                    "properties": {
+                        "recipe_name": {"type": "STRING"},
+                        "ayurvedic_benefit": {"type": "STRING"},
+                        "instructions": {"type": "ARRAY", "items": {"type": "STRING"}},
+                        "youtube_query": {"type": "STRING"},
+                        "ojas_impact": {"type": "INTEGER"}
+                    },
+                    "required": ["recipe_name", "ayurvedic_benefit", "instructions"]
+                }
             )
-            
-            recipe_data = json.loads(response.text)
+        )
+        
+        recipe_data = json.loads(response.text)
+        print(f"✨ AI SUCCESS: Generated '{recipe_data.get('recipe_name')}'")
+        print(f"--- 🍳 AI KITCHEN DEBUG END ---\n")
 
-            # --- NEW: Save to history in background ---
-            # This allows the AI response to be sent immediately while DB writes happen
-            bg_tasks.add_task(save_to_history, phone, ingredients, recipe_data)
+        # F. Background History Save
+        bg_tasks.add_task(save_to_history, phone, ingredients, recipe_data)
 
-            return {"status": "success", "data": recipe_data}
-            
-        except Exception as e:
-            logging.error(f"Fallback: {model_id} failed. Trying next...")
-            continue
+        return {"status": "success", "data": recipe_data}
 
-    raise HTTPException(status_code=503, detail="AI Kitchen Overloaded")
+    except Exception as e:
+        print(f"🚨 AI KITCHEN CRASH: {e}")
+        raise HTTPException(status_code=500, detail="Vaidya AI is currently unavailable.")
 
+# 5. RECIPE HISTORY LOG
 @app.get("/recipe_history/{phone}")
 async def get_recipe_history(phone: str):
-    """Fetches the user's history, sorted by newest first."""
-    # Retrieve only the last 20 recipes to maintain high performance
+    """Fetches the last 20 healing recipes for the user's log."""
     cursor = history_collection.find({"phone": phone}).sort("timestamp", -1)
     history = await cursor.to_list(length=20)
     
-    # Clean MongoDB _id for JSON compatibility
+    # Clean MongoDB _id for Flutter compatibility
     for item in history:
         item["_id"] = str(item["_id"])
-        
+        if "timestamp" in item:
+            item["timestamp"] = item["timestamp"].isoformat()
+            
     return {"status": "success", "data": history}
 
 @app.get("/list_my_models")

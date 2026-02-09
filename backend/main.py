@@ -587,7 +587,7 @@ from database import database as db, user_collection, user_helper
 history_collection = db.get_collection("recipe_history")
 # 2. CLIENT CONFIGURATION (Direct Key for Local Stability)
 # Forced v1beta for JSON Schema support with developer keys
-GEMINI_API_KEY = "AIzaSyApBq1X_ae20e02BgOsLCtcOyzNd2cyq0c"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 client = genai.Client(
     api_key=GEMINI_API_KEY,
     http_options={'api_version': 'v1beta'}
@@ -610,86 +610,87 @@ async def save_to_history(phone: str, ingredients: list, recipe: dict):
         print(f"❌ History Save Error: {e}")
 
 # 4. ENHANCED RECIPE GENERATOR
+# 3. THE "GOLD STANDARD" RECIPE ROUTE
 @app.post("/generate_recipe/{phone}")
 async def generate_recipe(phone: str, bg_tasks: BackgroundTasks, ingredients: list = Body(...)):
-    print(f"\n--- 🍳 AI KITCHEN DEBUG START ---")
-    print(f"📍 Requesting Phone: {phone}")
-    print(f"🛒 Ingredients Selected: {ingredients}")
-
-    # A. Fetch Clinical Data from User Document
+    print(f"\n--- 🍳 VAIDYA AI KITCHEN DEBUG ---")
+    
+    # A. Fetch clinical data
     user = await user_collection.find_one({"phone": phone})
     if not user:
-        print(f"❌ FAIL: User {phone} not found in DB.")
         raise HTTPException(status_code=404, detail="User not found")
     
-    # B. Extract Context
     prakriti = user.get("prakriti", {}).get("dominant", "Balanced")
     health = user.get("health_profile", {})
     conditions = health.get("conditions", [])
     allergies = health.get("allergies", [])
     
-    # C. Get current Agni from last assessment
+    # Fetch Agni from last Digital Vaidya chat
     assessments = user.get("assessment_history", [])
     agni = assessments[-1].get("agni", "Sama Agni") if assessments else "Sama Agni"
 
-    print(f"🧬 Bio-Profile: {prakriti} | {agni}")
-    print(f"🏥 Medical: {conditions} | 🚫 Allergies: {allergies}")
+    print(f"🧬 Bio: {prakriti}/{agni} | 🏥 Medical: {conditions} | 🚫 Allergies: {allergies}")
 
-    # D. THE PRODUCTION-READY "MASTER VAIDYA" PROMPT
+    # B. The Internship-Grade Master Prompt
     prompt = f"""
-Act as a Master Vaidya (Ayurvedic Doctor) and a Culinary Nutritionist. 
-Create a strictly medicinal, healing recipe for a person with the following clinical profile:
-
-1. Dominant Dosha (Prakriti): {prakriti}
-2. Digestive Power (Agni): {agni}
-3. Medical Conditions: {', '.join(conditions) if conditions else 'General Wellness'}
-4. Strict Allergies: {', '.join(allergies) if allergies else 'None'}
-5. Available Ingredients: {', '.join(ingredients)}
+Act as a Master Vaidya and a Clinical Nutritionist. Create a medicinal recipe for:
+- Prakriti: {prakriti} | Agni: {agni}
+- Medical History: {', '.join(conditions) if conditions else 'General Wellness'}
+- STRICT ALLERGIES: {', '.join(allergies) if allergies else 'None'}
+- AVAILABLE INGREDIENTS: {', '.join(ingredients)}
 
 STRICT REQUIREMENTS:
-- RECIPE NAME: Provide a creative name in both English and Kannada (e.g., Healing Ginger Tea - ಶುಂಠಿ ಚಹಾ).
-- CLINICAL REASONING: Explain WHY this recipe is prescribed. Reference how it balances {prakriti}, supports {agni}, and manages {', '.join(conditions)}. (Bilingual: 3 sentences total).
-- SAFETY CHECK: You MUST NOT use any ingredients that match the user's allergies ({', '.join(allergies)}).
-- INSTRUCTIONS: 5-7 bilingual cooking steps.
-- OJAS: Assign a vitality score from 5-15 based on the prana of ingredients.
+1. SAFETY: You MUST NOT use ingredients matching: {', '.join(allergies)}.
+2. CLINICAL REASONING: Explain WHY this works. Mention how it balances {prakriti}, supports {agni}, and manages {conditions}. (Bilingual: English & Kannada).
+3. INSTRUCTIONS: 5-7 high-quality bilingual cooking steps.
+4. SEARCH: A specific YouTube query for this healing dish.
+5. OJAS: Vitality score (5-15).
 
-Return ONLY a JSON object.
+Return ONLY JSON.
 """
 
-    try:
-        # E. AI Execution with Schema Enforcement
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema={
-                    "type": "OBJECT",
-                    "properties": {
-                        "recipe_name": {"type": "STRING"},
-                        "ayurvedic_benefit": {"type": "STRING"},
-                        "instructions": {"type": "ARRAY", "items": {"type": "STRING"}},
-                        "youtube_query": {"type": "STRING"},
-                        "ojas_impact": {"type": "INTEGER"}
-                    },
-                    "required": ["recipe_name", "ayurvedic_benefit", "instructions"]
-                }
+    # C. Resilient Model Failover Logic
+    # Based on your 'list_my_models' results
+    models_to_try = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-flash-latest"]
+    
+    for model_id in models_to_try:
+        try:
+            print(f"🚀 Trying: {model_id}")
+            response = client.models.generate_content(
+                model=model_id,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "OBJECT",
+                        "properties": {
+                            "recipe_name": {"type": "STRING"},
+                            "ayurvedic_benefit": {"type": "STRING"},
+                            "instructions": {"type": "ARRAY", "items": {"type": "STRING"}},
+                            "youtube_query": {"type": "STRING"},
+                            "ojas_impact": {"type": "INTEGER"}
+                        },
+                        "required": ["recipe_name", "ayurvedic_benefit", "instructions"]
+                    }
+                )
             )
-        )
-        
-        recipe_data = json.loads(response.text)
-        print(f"✨ AI SUCCESS: Generated '{recipe_data.get('recipe_name')}'")
-        print(f"--- 🍳 AI KITCHEN DEBUG END ---\n")
+            
+            recipe_data = json.loads(response.text)
+            print(f"✅ AI SUCCESS: {model_id} generated {recipe_data.get('recipe_name')}")
+            
+            # Background history sync
+            bg_tasks.add_task(save_to_history, phone, ingredients, recipe_data)
+            
+            return {"status": "success", "data": recipe_data}
 
-        # F. Background History Save
-        bg_tasks.add_task(save_to_history, phone, ingredients, recipe_data)
+        except Exception as e:
+            if "429" in str(e) or "404" in str(e):
+                print(f"⚠️ {model_id} busy/missing. Retrying fallback...")
+                continue 
+            print(f"🚨 CRITICAL ERROR on {model_id}: {e}")
+            continue
 
-        return {"status": "success", "data": recipe_data}
-
-    except Exception as e:
-        print(f"🚨 AI KITCHEN CRASH: {e}")
-        raise HTTPException(status_code=500, detail="Vaidya AI is currently unavailable.")
-
+    raise HTTPException(status_code=429, detail="All AI models are busy. Wait 30s.")
 # 5. RECIPE HISTORY LOG
 @app.get("/recipe_history/{phone}")
 async def get_recipe_history(phone: str):
@@ -725,3 +726,39 @@ async def list_my_models():
 @app.get("/health")
 async def health_check():
     return {"status": "ready", "timestamp": datetime.now().isoformat()}
+
+@app.post("/update_profile/{phone}")
+async def update_profile(phone: str, profile_data: dict = Body(...)):
+    """
+    Updates medical conditions, allergies, and physical metrics.
+    Also allows for updating the 'report_uploaded' flag if a new PDF is scanned.
+    """
+    print(f"🔄 UPDATING PROFILE for: {phone}")
+    
+    # 1. Verify User exists
+    user = await user_collection.find_one({"phone": phone})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 2. Extract incoming data
+    # We use .get() to allow partial updates (e.g., just updating weight)
+    updated_health = {
+        "conditions": profile_data.get("conditions", user.get("health_profile", {}).get("conditions", [])),
+        "allergies": profile_data.get("allergies", user.get("health_profile", {}).get("allergies", [])),
+        "weight": profile_data.get("weight", user.get("health_profile", {}).get("weight")),
+        "activity_level": profile_data.get("activity_level", user.get("health_profile", {}).get("activity_level", "moderate"))
+    }
+
+    # 3. Apply Update to MongoDB
+    result = await user_collection.update_one(
+        {"phone": phone},
+        {"$set": {
+            "health_profile": updated_health,
+            "report_uploaded": profile_data.get("report_uploaded", user.get("report_uploaded", False))
+        }}
+    )
+
+    if result.modified_count >= 0: # 0 is fine if data is the same
+        return {"status": "success", "message": "Health Profile Synchronized"}
+    
+    raise HTTPException(status_code=500, detail="Failed to update database")

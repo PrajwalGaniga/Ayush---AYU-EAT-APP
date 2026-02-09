@@ -13,6 +13,7 @@ import 'chat_screen.dart';
 import 'growth_summary_screen.dart';
 import '../services/local_storage.dart';
 import 'recipe_lab_screen.dart';
+import 'profile_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String userPhone;
@@ -22,20 +23,150 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen> with TickerProviderStateMixin {
+  // --- STATE VARIABLES (Preserved) ---
   Map<String, dynamic>? userData;
   Map<String, dynamic>? weeklySummary;
   bool _isLoading = true;
   String _lang = "en"; // Language Toggle State
 
+  // --- ANIMATION CONTROLLERS ---
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+  final ScrollController _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
+    // Initialize animations FIRST to prevent LateInitializationError
+    _setupAnimations();
+    // Then fetch data
     _fetchFullData();
+    _checkBioFeedback();
   }
 
-  // --- LOGIC: DATA FETCHING ---
-  // --- LOGIC: DATA FETCHING (Now with Offline Support) ---
+  void _setupAnimations() {
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // dashboard_screen.dart
+
+  // --- NEW: BIO-FEEDBACK CHECKER ---
+  Future<void> _checkBioFeedback() async {
+    try {
+      final res = await http.get(Uri.parse("${ApiConfig.baseUrl}/post_meal_status/${widget.userPhone}"));
+      
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        
+        // Only show if status is 'due'
+        if (data['status'] == 'due') {
+          _showFeedbackModal(data);
+        }
+      }
+    } catch (e) {
+      debugPrint("Feedback Check Failed: $e");
+    }
+  }
+
+  void _showFeedbackModal(Map<String, dynamic> data) {
+    showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(25),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.access_time_filled_rounded, size: 50, color: AyuTheme.darkGreen),
+            const SizedBox(height: 15),
+            Text("2 Hours Later...", style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            Text("Digestion Check: ${data['meal_name']}", 
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87)),
+            const SizedBox(height: 20),
+            
+            // Dynamic Questions List
+            Container(
+              padding: const EdgeInsets.all(15),
+              decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(15)),
+              child: Column(
+                children: (data['questions'] as List).map<Widget>((q) => 
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Row(children: [
+                      const Icon(Icons.help_outline, size: 18, color: Colors.grey), 
+                      const SizedBox(width: 10), 
+                      Expanded(child: Text(q, style: const TextStyle(fontSize: 15)))
+                    ]),
+                  )
+                ).toList(),
+              ),
+            ),
+            
+            const SizedBox(height: 25),
+            const Text("How does your body feel?", style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 15),
+            
+            Row(
+              children: [
+                Expanded(child: _feedbackBtn("Heavy / Bad", Colors.red[50]!, Colors.red, "Bad")),
+                const SizedBox(width: 15),
+                Expanded(child: _feedbackBtn("Light / Energetic", Colors.green[50]!, Colors.green, "Good")),
+              ],
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _feedbackBtn(String label, Color bg, Color textCol, String value) {
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: bg,
+        foregroundColor: textCol,
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+      ),
+      onPressed: () async {
+        Navigator.pop(context); // Close Modal
+        await http.post(
+          Uri.parse("${ApiConfig.baseUrl}/submit_feedback/${widget.userPhone}"),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode({"feeling": value})
+        );
+        _fetchFullData(); // Refresh Dashboard with new Ojas
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Ojas Updated based on feedback!"), backgroundColor: AyuTheme.darkGreen)
+        );
+      },
+      child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+    );
+  }
+
+  // --- LOGIC: DATA FETCHING (Preserved) ---
   Future<void> _fetchFullData() async {
     setState(() => _isLoading = true);
     try {
@@ -48,7 +179,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final profile = jsonDecode(results[0].body);
         final summary = jsonDecode(results[1].body);
 
-        // SAVE TO CACHE
         await LocalCache.save("profile_${widget.userPhone}", profile);
         await LocalCache.save("summary_${widget.userPhone}", summary);
 
@@ -64,7 +194,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       debugPrint("Offline mode: Loading cached dashboard data.");
     }
 
-    // FALLBACK: Load from Cache if Network Fails
     final cachedProfile = await LocalCache.get("profile_${widget.userPhone}");
     final cachedSummary = await LocalCache.get("summary_${widget.userPhone}");
 
@@ -77,11 +206,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // --- LOGIC: AVATAR SELECTION ---
-  // Returns the correct asset path based on gender and Ojas score
+  // --- LOGIC: ASSETS & COLORS (Preserved) ---
   String _getAvatarAsset(String gender, int score) {
     bool isMale = gender.toLowerCase() == 'male';
-    String path = 'assets/images/'; // Ensure this matches your pubspec.yaml path
+    String path = 'assets/images/';
     if (score < 50) {
       return isMale ? '${path}unhealthy_male.png' : '${path}unhealthy_female.png';
     } else {
@@ -89,23 +217,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // --- LOGIC: COLOR CODING ---
   Color _getStatusColor(int score) {
     if (score < 40) return AyuTheme.warningRed;
     if (score < 60) return Colors.orange;
-    return const Color(0xFF4CAF50); // Vibrant Green
+    return const Color(0xFF4CAF50);
   }
 
+  // --- UI BUILD ---
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: Color(0xFFF4F7F4),
+        backgroundColor: Color(0xFFF8FAF8),
         body: Center(child: CircularProgressIndicator(color: AyuTheme.darkGreen)),
       );
     }
 
-    // Extract Data safely
+    // Data Extraction
     final name = userData?['fullname'] ?? "Seeker";
     final prakriti = userData?['prakriti'] ?? {};
     final v = (prakriti['vata'] ?? 33.3).toDouble();
@@ -116,281 +244,378 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final gender = userData?['gender'] ?? 'male';
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FBF9), // Soft Sage/White Background
+      backgroundColor: const Color(0xFFF8FAF8), // Premium Off-White
+      extendBody: true,
       body: CustomScrollView(
+        controller: _scrollController,
         physics: const BouncingScrollPhysics(),
         slivers: [
-          // 1. SNAPCHAT-STYLE FULL HEADER
-          _buildImmersiveHeader(gender, ojasScore),
+          // 1. Glassmorphism Header
+          _buildPersistentHeader(name),
 
-          // 2. SCROLLABLE CONTENT
+          // 2. Immersive Hero Section
           SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 25),
-                  
-                  // WELCOME & LANG TOGGLE
-                  _buildWelcomeRow(name),
-                  const SizedBox(height: 20),
+            child: _buildImmersiveHero(gender, ojasScore, dominant),
+          ),
 
-                  // INSIGHT BANNER (Dynamic)
-                  _buildInsightBanner(dominant, ojasScore),
-                  const SizedBox(height: 25),
+          // 3. Main Content Content
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                const SizedBox(height: 25),
 
-                  // WEEKLY METRICS (Horizontal Card)
-                  if (weeklySummary != null) _buildHorizontalScorecard(weeklySummary!),
-                  const SizedBox(height: 30),
-
-                  // WELLNESS GRID (Action Cards)
-                  _buildSectionTitle(_lang == "en" ? "Wellness Hub" : "ಆರೋಗ್ಯ ಕೇಂದ್ರ"),
-                  _buildWellnessGrid(dominant),
-
-                  const SizedBox(height: 30),
-                  
-                  // DOSHA RADAR
-                  _buildSectionTitle(_lang == "en" ? "Dosha Balance" : "ದೋಷ ಸಮತೋಲನ"),
-                  _buildDoshaRadar(v, p, k),
-
-                  const SizedBox(height: 25),
-                  
-                  // WISDOM CARD
-                  _buildWisdomCard(dominant),
-                  
-                  const SizedBox(height: 100), // Bottom padding for FAB
+                // Weekly Pulse
+                if (weeklySummary != null) ...[
+                  _buildSectionHeader(
+                    _lang == "en" ? "Weekly Pulse" : "ವಾರದ ವರದಿ",
+                    Icons.show_chart_rounded
+                  ),
+                  const SizedBox(height: 16),
+                  _buildWeeklyMetricsCard(weeklySummary!),
+                  const SizedBox(height: 32),
                 ],
-              ),
+
+                // Wellness Hub Grid
+                _buildSectionHeader(
+                  _lang == "en" ? "Wellness Hub" : "ಆರೋಗ್ಯ ಕೇಂದ್ರ",
+                  Icons.grid_view_rounded
+                ),
+                const SizedBox(height: 16),
+                _buildWellnessGrid(dominant),
+                const SizedBox(height: 32),
+
+                // Dosha Balance
+                _buildSectionHeader(
+                  _lang == "en" ? "Dosha Balance" : "ದೋಷ ಸಮತೋಲನ",
+                  Icons.incomplete_circle_rounded
+                ),
+                const SizedBox(height: 16),
+                _buildDoshaRadar(v, p, k),
+                const SizedBox(height: 32),
+
+                // Wisdom Card
+                _buildWisdomCard(dominant),
+                const SizedBox(height: 120), // Space for FAB
+              ]),
             ),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AyuTheme.darkGreen,
-        elevation: 4,
-        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => CameraScreen(userPhone: widget.userPhone))),
-        icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
-        label: Text(
-          _lang == "en" ? "SCAN MEAL" : "ಊಟ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ", 
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1),
-        ),
-      ),
+      floatingActionButton: _buildPulsingFAB(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
   // --------------------------------------------------------------------------
-  // UI COMPONENTS (REFACTORED)
+  // 1️⃣ PERSISTENT HEADER (Glassmorphic SliverAppBar)
   // --------------------------------------------------------------------------
+  Widget _buildPersistentHeader(String name) {
+    final firstName = name.split(" ")[0];
 
-  // 1️⃣ HEADER: Full Screen Immersive Avatar
-  Widget _buildImmersiveHeader(String gender, int score) {
     return SliverAppBar(
-      expandedHeight: MediaQuery.of(context).size.height * 0.42, // ~42% Screen Height
       pinned: true,
-      stretch: true,
-      backgroundColor: AyuTheme.darkGreen,
+      floating: false,
       elevation: 0,
-      leading: Container(), // Hide back button
-      actions: [
-         // Manual Refresh
-        IconButton(
-          icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-          onPressed: _fetchFullData,
+      scrolledUnderElevation: 0,
+      backgroundColor: const Color(0xFFF8FAF8).withOpacity(0.85),
+      toolbarHeight: 70,
+      flexibleSpace: ClipRRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(color: Colors.transparent),
         ),
-        // Logout
-        IconButton(
-          icon: const Icon(Icons.logout_rounded, color: Colors.white),
-          onPressed: () => AuthService.logout().then((_) => 
-            Navigator.pushReplacement(context, MaterialPageRoute(builder: (c) => const LoginScreen()))
+      ),
+      // REPLACE your current Title Row with this:
+title: Row(
+  children: [
+    GestureDetector(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (c) => ProfileScreen(userPhone: widget.userPhone))),
+      child: const CircleAvatar(
+        radius: 18,
+        backgroundColor: AyuTheme.accentSage,
+        child: Icon(Icons.person, color: AyuTheme.darkGreen, size: 20),
+      ),
+    ),
+    const SizedBox(width: 12),
+    // FIX: Wrap Text in Flexible to prevent overflow
+    Flexible( 
+      child: Text(
+        "Namaste, ${name.split(' ')[0]}", 
+        style: const TextStyle(color: Color(0xFF2D3142), fontSize: 18, fontWeight: FontWeight.bold),
+        overflow: TextOverflow.ellipsis, // Adds "..." if too long
+      ),
+    ),
+  ],
+),
+      actions: [
+        // Language Toggle
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 18),
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.grey.withOpacity(0.2)),
+          ),
+          child: Row(
+            children: [
+              _buildLangOption("EN", _lang == "en"),
+              _buildLangOption("KN", _lang == "kn"),
+            ],
           ),
         ),
-      ],
-      flexibleSpace: FlexibleSpaceBar(
-        stretchModes: const [StretchMode.zoomBackground],
-        background: Stack(
-          alignment: Alignment.bottomCenter,
-          children: [
-            // A. Gradient Background (The "Environment")
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: score >= 50 
-                    ? [const Color(0xFFAED581), AyuTheme.darkGreen] // Healthy: Vibrant Light to Dark Green
-                    : [const Color(0xFFB0BEC5), const Color(0xFF455A64)], // Unhealthy: Muted Grey/Blue
-                ),
-              ),
-            ),
+        const SizedBox(width: 8),
 
-            // B. The Avatar (Full Scale, Bottom Aligned)
-            Positioned(
-              bottom: 0,
-              // Height logic ensures the character fills the space without being cut off weirdly
-              height: MediaQuery.of(context).size.height * 0.38, 
-              child: Hero(
-                tag: 'userAvatar',
-                child: Image.asset(
-                  _getAvatarAsset(gender, score),
-                  fit: BoxFit.fitHeight, 
-                  errorBuilder: (c, e, s) => const Icon(Icons.person, size: 150, color: Colors.white24),
-                ),
-              ),
+        // Menu
+        PopupMenuButton<String>(
+          icon: Icon(Icons.more_vert_rounded, color: Colors.grey[700]),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          color: Colors.white,
+          surfaceTintColor: Colors.white,
+          onSelected: (value) {
+            if (value == 'profile') Navigator.push(context, MaterialPageRoute(builder: (c) => ProfileScreen(userPhone: widget.userPhone)));
+            if (value == 'logout') AuthService.logout().then((_) => Navigator.pushReplacement(context, MaterialPageRoute(builder: (c) => const LoginScreen())));
+            if (value == 'refresh') _fetchFullData();
+          },
+          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+             PopupMenuItem<String>(
+              value: 'profile',
+              child: ListTile(
+                leading: const Icon(Icons.person_outline, size: 20),
+                title: const Text('My Profile'),
+                contentPadding: EdgeInsets.zero,
+                titleTextStyle: TextStyle(fontSize: 14, color: Colors.grey[800]),
+              )
             ),
-
-            // C. Glassmorphism Ojas Score Pill
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 60, // Below AppBar actions
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(30),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: Colors.white.withOpacity(0.2)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.bolt, color: _getStatusColor(score), size: 24),
-                        const SizedBox(width: 8),
-                        Text(
-                          _lang == "en" ? "Ojas: $score%" : "ಓಜಸ್: $score%",
-                          style: const TextStyle(
-                            color: Colors.white, 
-                            fontWeight: FontWeight.bold, 
-                            fontSize: 18,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+             PopupMenuItem<String>(
+              value: 'refresh',
+              child: ListTile(
+                leading: const Icon(Icons.refresh, size: 20),
+                title: const Text('Refresh Data'),
+                contentPadding: EdgeInsets.zero,
+                titleTextStyle: TextStyle(fontSize: 14, color: Colors.grey[800]),
+              )
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'logout',
+              child: ListTile(
+                leading: Icon(Icons.logout, color: Colors.red, size: 20),
+                title: Text('Logout'),
+                contentPadding: EdgeInsets.zero,
+                titleTextStyle: TextStyle(fontSize: 14, color: Colors.red),
+              )
             ),
           ],
+        ),
+        const SizedBox(width: 12),
+      ],
+    );
+  }
+
+  Widget _buildLangOption(String text, bool isSelected) {
+    return GestureDetector(
+      onTap: () => setState(() => _lang = text.toLowerCase()),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? AyuTheme.darkGreen : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            color: isSelected ? Colors.white : Colors.grey[500],
+          ),
         ),
       ),
     );
   }
 
-  // 2️⃣ WELCOME & LANGUAGE TOGGLE
-  Widget _buildWelcomeRow(String name) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _lang == "en" ? "Namaste," : "ನಮಸ್ತೆ,", 
-              style: TextStyle(fontSize: 15, color: Colors.grey[600], letterSpacing: 0.5)
-            ),
-            const SizedBox(height: 4),
-            Text(
-              name, 
-              style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AyuTheme.darkGreen)
-            ),
-          ],
+  // --------------------------------------------------------------------------
+  // 2️⃣ IMMERSIVE HERO (Refined Visuals)
+  // --------------------------------------------------------------------------
+  Widget _buildImmersiveHero(String gender, int score, String dominant) {
+    final bool isHighScore = score >= 50;
+    
+    return Container(
+      height: 360,
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(32),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isHighScore
+              ? [const Color(0xFFE8F5E9), const Color(0xFFC8E6C9)] // Healing Green
+              : [const Color(0xFFF5F5F5), const Color(0xFFE0E0E0)], // Neutral Grey
         ),
-        // Modern Toggle Button
-        GestureDetector(
-          onTap: () => setState(() => _lang = _lang == "en" ? "kn" : "en"),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: AyuTheme.accentSage,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AyuTheme.darkGreen.withOpacity(0.3)),
-            ),
-            child: Row(
+        boxShadow: [
+          BoxShadow(
+            color: AyuTheme.darkGreen.withOpacity(0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Ambient Background Icon
+          Positioned(
+            top: -40,
+            right: -40,
+            child: Icon(Icons.spa_rounded, size: 240, color: Colors.white.withOpacity(0.4)),
+          ),
+
+          // Vitality Score (Top Left)
+          Positioned(
+            top: 28,
+            left: 28,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.translate, size: 16, color: AyuTheme.darkGreen),
-                const SizedBox(width: 6),
-                Text(
-                  _lang == "en" ? "ಕನ್ನಡ" : "ENG", 
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: AyuTheme.darkGreen)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.monitor_heart_outlined, size: 14, color: AyuTheme.darkGreen.withOpacity(0.8)),
+                      const SizedBox(width: 4),
+                      Text(
+                        "VITALITY INDEX",
+                        style: TextStyle(
+                          color: AyuTheme.darkGreen.withOpacity(0.8),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      "$score",
+                      style: TextStyle(
+                        color: AyuTheme.darkGreen,
+                        fontSize: 56,
+                        fontWeight: FontWeight.w900,
+                        height: 1.0,
+                        letterSpacing: -1.0
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10, left: 4),
+                      child: Text(
+                        "/100",
+                        style: TextStyle(
+                          color: AyuTheme.darkGreen.withOpacity(0.5),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(score).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        score > 50 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+                        size: 16,
+                        color: _getStatusColor(score),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        score > 50 ? "Doing Well" : "Needs Care",
+                        style: TextStyle(
+                          color: _getStatusColor(score),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-        ),
-      ],
+
+          // Avatar Image (Centered Bottom)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 0),
+              child: Hero(
+                tag: 'userAvatar',
+                child: Image.asset(
+                  _getAvatarAsset(gender, score),
+                  height: 280,
+                  fit: BoxFit.contain,
+                  errorBuilder: (c, e, s) => const Icon(Icons.person, size: 120, color: Colors.black12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  // 3️⃣ INSIGHT BANNER (Dynamic Context)
-  Widget _buildInsightBanner(String dominant, int score) {
-    bool isLow = score < 50;
-    String textEn = isLow 
-      ? "Your vitality is low. Focus on warm meals and deep rest today." 
-      : "Your $dominant energy is vibrant! Maintain it with grounding rituals.";
-    String textKn = isLow
-      ? "ನಿಮ್ಮ ಶಕ್ತಿ ಕಡಿಮೆಯಾಗಿದೆ. ಇಂದು ಬಿಸಿ ಊಟ ಮತ್ತು ವಿಶ್ರಾಂತಿಗೆ ಗಮನ ಕೊಡಿ."
-      : "ನಿಮ್ಮ $dominant ಶಕ್ತಿ ಉತ್ತಮವಾಗಿದೆ! ಇದನ್ನು ಯೋಗದೊಂದಿಗೆ ಕಾಪಾಡಿಕೊಳ್ಳಿ.";
+  // --------------------------------------------------------------------------
+  // 3️⃣ WEEKLY METRICS (Clean Card)
+  // --------------------------------------------------------------------------
+  Widget _buildWeeklyMetricsCard(Map<String, dynamic> summary) {
+    final completion = (summary['task_completion'] as num).toDouble();
+    final avgOjas = (summary['avg_ojas'] as num).toDouble();
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.grey.withOpacity(0.08)),
         boxShadow: [
-          BoxShadow(color: isLow ? Colors.red.withOpacity(0.05) : Colors.green.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 5))
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 15,
+            offset: const Offset(0, 4)
+          )
         ],
-        border: Border.all(color: isLow ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: isLow ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              isLow ? Icons.battery_alert : Icons.battery_full, 
-              color: isLow ? AyuTheme.warningRed : Colors.green,
-            ),
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Text(
-              _lang == "en" ? textEn : textKn,
-              style: const TextStyle(fontSize: 13, color: Colors.black87, height: 1.4),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 4️⃣ WEEKLY METRICS (Horizontal Scorecard)
-  Widget _buildHorizontalScorecard(Map<String, dynamic> summary) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 15),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20, offset: const Offset(0, 4))],
       ),
       child: IntrinsicHeight(
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _metricItem(
-              _lang == "en" ? "Daily Rituals" : "ದಿನಚರ್ಯ", 
-              summary['task_completion'] / 100, 
-              Colors.blueAccent
+            _buildCircularIndicator(
+              "Rituals",
+              completion / 100,
+              const Color(0xFF5C6BC0), // Soft Indigo
+              Icons.check_circle_outline_rounded
             ),
-            const VerticalDivider(width: 30, indent: 10, endIndent: 10),
-            _metricItem(
-              _lang == "en" ? "Weekly Avg" : "ವಾರದ ಸರಾಸರಿ", 
-              summary['avg_ojas'] / 100, 
-              Colors.orangeAccent
+            VerticalDivider(color: Colors.grey[100], thickness: 1.5, width: 30),
+            _buildCircularIndicator(
+              "Avg Ojas",
+              avgOjas / 100,
+              const Color(0xFFFFA726), // Soft Orange
+              Icons.bolt_rounded
             ),
           ],
         ),
@@ -398,96 +623,149 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _metricItem(String title, double value, Color color) {
-    return Expanded(
-      child: Column(
-        children: [
-          SizedBox(
-            height: 60, width: 60,
-            child: CircularProgressIndicator(
-              value: value,
-              backgroundColor: color.withOpacity(0.1),
-              color: color,
-              strokeWidth: 6,
-              strokeCap: StrokeCap.round,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text("${(value * 100).toInt()}%", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          Text(title, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        ],
-      ),
-    );
-  }
-
-  // 5️⃣ WELLNESS GRID (Premium Action Cards)
-  Widget _buildWellnessGrid(String dominant) {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 2,
-      mainAxisSpacing: 15,
-      crossAxisSpacing: 15,
-      childAspectRatio: 1.1, // Taller cards for better visual balance
+  Widget _buildCircularIndicator(String label, double value, Color color, IconData icon) {
+    return Column(
       children: [
-        _actionCard(
-          _lang == "en" ? "Recipe Lab" : "ರೆಸಿಪಿ ಲ್ಯಾಬ್", 
-          _lang == "en" ? "Healing Meals" : "ಔಷಧೀಯ ಆಹಾರ",
-          Icons.restaurant_menu_rounded, 
-          Colors.orange, 
-          () => Navigator.push(context, MaterialPageRoute(builder: (c) => RecipeLabScreen(userPhone: widget.userPhone, dominant: dominant)))
+        SizedBox(
+          height: 60, width: 60,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CircularProgressIndicator(
+                value: value,
+                backgroundColor: color.withOpacity(0.08),
+                color: color,
+                strokeWidth: 5,
+                strokeCap: StrokeCap.round,
+              ),
+              Icon(icon, color: color, size: 22),
+            ],
+          ),
         ),
-        _actionCard(
-          _lang == "en" ? "Daily Check" : "ದಿನಚರ್ಯ", 
-          _lang == "en" ? "Track Habits" : "ಅಭ್ಯಾಸಗಳು",
-          Icons.check_circle_outline_rounded, 
-          AyuTheme.darkGreen, 
-          () => Navigator.push(context, MaterialPageRoute(builder: (c) => WeeklyChecklistScreen(userPhone: widget.userPhone, prakriti: userData?['prakriti'])))
+        const SizedBox(height: 12),
+        Text(
+          "${(value * 100).toInt()}%",
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Color(0xFF2D3142)),
         ),
-        _actionCard(
-          _lang == "en" ? "Vaidya Chat" : "ವೈದ್ಯ ಚಾಟ್", 
-          _lang == "en" ? "AI Diagnosis" : "ಆರೋಗ್ಯ ಸಲಹೆ",
-          Icons.psychology, 
-          Colors.blueAccent, 
-          () => Navigator.push(context, MaterialPageRoute(builder: (c) => AyushChatScreen(userPhone: widget.userPhone)))
-        ),
-        _actionCard(
-          _lang == "en" ? "My Progress" : "ನನ್ನ ಪ್ರಗತಿ", 
-          _lang == "en" ? "Growth Chart" : "ಬೆಳವಣಿಗೆ ವರದಿ",
-          Icons.trending_up_rounded, 
-          Colors.purple, 
-          () => Navigator.push(context, MaterialPageRoute(builder: (c) => GrowthSummaryScreen(userPhone: widget.userPhone)))
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey[500], fontWeight: FontWeight.w500),
         ),
       ],
     );
   }
 
-  Widget _actionCard(String title, String subtitle, IconData icon, Color color, VoidCallback onTap) {
+  // --------------------------------------------------------------------------
+  // 4️⃣ WELLNESS GRID (Refined)
+  // --------------------------------------------------------------------------
+  Widget _buildWellnessGrid(String dominant) {
+    final actions = [
+      {
+        "title": _lang == "en" ? "Recipe Lab" : "ರೆಸಿಪಿ ಲ್ಯಾಬ್",
+        "sub": _lang == "en" ? "Heal with Food" : "ಔಷಧೀಯ ಆಹಾರ",
+        "icon": Icons.restaurant_menu_rounded,
+        "color": const Color(0xFFFFA726),
+        "bg": const Color(0xFFFFF3E0),
+        "tap": () => Navigator.push(context, MaterialPageRoute(builder: (c) => RecipeLabScreen(userPhone: widget.userPhone, dominant: dominant)))
+      },
+      {
+        "title": _lang == "en" ? "Daily Check" : "ದಿನಚರ್ಯ",
+        "sub": _lang == "en" ? "Track Habits" : "ಅಭ್ಯಾಸಗಳು",
+        "icon": Icons.task_alt_rounded,
+        "color": const Color(0xFF66BB6A),
+        "bg": const Color(0xFFE8F5E9),
+        "tap": () => Navigator.push(context, MaterialPageRoute(builder: (c) => WeeklyChecklistScreen(userPhone: widget.userPhone, prakriti: userData?['prakriti'])))
+      },
+      {
+        "title": _lang == "en" ? "Vaidya Chat" : "ವೈದ್ಯ ಚಾಟ್",
+        "sub": _lang == "en" ? "AI Diagnosis" : "ಆರೋಗ್ಯ ಸಲಹೆ",
+        "icon": Icons.psychology_rounded,
+        "color": const Color(0xFF42A5F5),
+        "bg": const Color(0xFFE3F2FD),
+        "tap": () => Navigator.push(context, MaterialPageRoute(builder: (c) => AyushChatScreen(userPhone: widget.userPhone)))
+      },
+      {
+        "title": _lang == "en" ? "Progress" : "ಪ್ರಗತಿ",
+        "sub": _lang == "en" ? "Growth Chart" : "ವರದಿ",
+        "icon": Icons.bar_chart_rounded,
+        "color": const Color(0xFFAB47BC),
+        "bg": const Color(0xFFF3E5F5),
+        "tap": () => Navigator.push(context, MaterialPageRoute(builder: (c) => GrowthSummaryScreen(userPhone: widget.userPhone)))
+      },
+    ];
+
+    return GridView.builder(
+      padding: EdgeInsets.zero,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 1.15,
+      ),
+      itemCount: actions.length,
+      itemBuilder: (context, index) {
+        final item = actions[index];
+        return _buildActionCard(
+          item['title'] as String,
+          item['sub'] as String,
+          item['icon'] as IconData,
+          item['color'] as Color,
+          item['bg'] as Color,
+          item['tap'] as VoidCallback,
+        );
+      },
+    );
+  }
+
+  Widget _buildActionCard(String title, String sub, IconData icon, Color color, Color bg, VoidCallback onTap) {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(24),
-      elevation: 2,
-      shadowColor: Colors.black.withOpacity(0.05),
+      elevation: 0,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(24),
-        child: Padding(
+        splashColor: bg,
+        highlightColor: bg.withOpacity(0.5),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.grey.withOpacity(0.08)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 8,
+                offset: const Offset(0, 2)
+              )
+            ],
+          ),
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-                child: Icon(icon, color: color, size: 24),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: bg,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color, size: 22),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Color(0xFF2D3142)),
+                  ),
                   const SizedBox(height: 2),
-                  Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                  Text(
+                    sub,
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500], fontWeight: FontWeight.w500),
+                  ),
                 ],
               )
             ],
@@ -497,26 +775,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // 6️⃣ DOSHA RADAR (Polished)
+  // --------------------------------------------------------------------------
+  // 5️⃣ DOSHA & WISDOM
+  // --------------------------------------------------------------------------
   Widget _buildDoshaRadar(double v, double p, double k) => Container(
-    height: 300,
+    height: 340,
     decoration: BoxDecoration(
-      color: Colors.white, 
+      color: Colors.white,
       borderRadius: BorderRadius.circular(24),
-      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 4))],
+      border: Border.all(color: Colors.grey.withOpacity(0.08)),
+      boxShadow: [
+        BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 15, offset: const Offset(0, 4))
+      ],
     ),
     child: Column(
       children: [
-        const SizedBox(height: 20),
+        const SizedBox(height: 24),
         Expanded(
           child: RadarChart(RadarChartData(
             radarTouchData: RadarTouchData(enabled: false),
             dataSets: [
               RadarDataSet(
-                fillColor: AyuTheme.lightGreen.withOpacity(0.2), 
-                borderColor: AyuTheme.darkGreen, 
-                borderWidth: 2, 
-                entryRadius: 3,
+                fillColor: AyuTheme.lightGreen.withOpacity(0.2),
+                borderColor: AyuTheme.darkGreen,
+                borderWidth: 2,
+                entryRadius: 3.5,
                 dataEntries: [RadarEntry(value: v), RadarEntry(value: p), RadarEntry(value: k)]
               )
             ],
@@ -524,7 +807,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             borderData: FlBorderData(show: false),
             radarBorderData: const BorderSide(color: Colors.transparent),
             titlePositionPercentageOffset: 0.2,
-            titleTextStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AyuTheme.darkGreen),
+            titleTextStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AyuTheme.darkGreen),
             getTitle: (index, _) {
               switch (index) {
                 case 0: return const RadarChartTitle(text: 'VATA');
@@ -535,56 +818,144 @@ class _DashboardScreenState extends State<DashboardScreen> {
             },
             tickCount: 1,
             ticksTextStyle: const TextStyle(color: Colors.transparent),
-            gridBorderData: BorderSide(color: Colors.grey.withOpacity(0.2), width: 1),
+            gridBorderData: BorderSide(color: Colors.grey.withOpacity(0.15), width: 1),
           )),
         ),
-        const SizedBox(height: 20),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 24),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _legendItem("Vata", v, Colors.blue),
+              const SizedBox(width: 24),
+              _legendItem("Pitta", p, Colors.red),
+              const SizedBox(width: 24),
+              _legendItem("Kapha", k, Colors.green),
+            ],
+          ),
+        ),
       ],
     ),
   );
 
-  // 7️⃣ WISDOM CARD (Emotional Design)
+  Widget _legendItem(String label, double val, Color color) {
+    return Row(
+      children: [
+        Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 8),
+        Text(
+          "$label ${(val).toInt()}%",
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+        ),
+      ],
+    );
+  }
+
   Widget _buildWisdomCard(String dominant) {
     return Container(
-      width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [AyuTheme.accentSage, Colors.white],
+          colors: [const Color(0xFFF1F8E9), Colors.white],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: AyuTheme.darkGreen.withOpacity(0.1)),
+        boxShadow: [
+          BoxShadow(color: AyuTheme.darkGreen.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 4))
+        ],
       ),
-      child: Column(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.self_improvement, color: AyuTheme.darkGreen.withOpacity(0.6), size: 32),
-          const SizedBox(height: 12),
-          Text(
-            _lang == "en" ? "Ayurvedic Wisdom" : "ಆಯುರ್ವೇದ ಜ್ಞಾನ", 
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 1),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))],
+            ),
+            child: const Icon(Icons.light_mode_rounded, color: Colors.orange, size: 22),
           ),
-          const SizedBox(height: 8),
-          Text(
-            _lang == "en" 
-              ? "Since you are $dominant dominant, prioritize warm, cooked meals and avoid dry, cold snacks to maintain balance." 
-              : "$dominant ಪ್ರಕೃತಿಯವರು, ಸಮತೋಲನವನ್ನು ಕಾಪಾಡಿಕೊಳ್ಳಲು ಬೆಚ್ಚಗಿನ, ಬೇಯಿಸಿದ ಊಟಕ್ಕೆ ಆದ್ಯತೆ ನೀಡಿ ಮತ್ತು ಒಣ, ತಂಪು ತಿಂಡಿಗಳನ್ನು ತಪ್ಪಿಸಿ.",
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontStyle: FontStyle.italic, color: Color(0xFF37474F), fontSize: 14, height: 1.5),
-          )
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _lang == "en" ? "DAILY WISDOM" : "ದಿನದ ಜ್ಞಾನ",
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _lang == "en"
+                    ? "Since you are $dominant, eat warm, cooked meals today."
+                    : "$dominant ಪ್ರಕೃತಿಯವರು, ಇಂದು ಬೆಚ್ಚಗಿನ ಊಟ ಮಾಡಿ.",
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2D3142), height: 1.5),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 5, bottom: 15), 
-      child: Text(
-        title, 
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF2E3D30))
-      )
+  // --------------------------------------------------------------------------
+  // 6️⃣ PULSING FAB
+  // --------------------------------------------------------------------------
+  Widget _buildPulsingFAB() {
+    return ScaleTransition(
+      scale: _pulseAnimation,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(50),
+          boxShadow: [
+            BoxShadow(
+              color: AyuTheme.darkGreen.withOpacity(0.3),
+              blurRadius: 24,
+              spreadRadius: 2,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: FloatingActionButton.extended(
+          backgroundColor: AyuTheme.darkGreen,
+          elevation: 0,
+          highlightElevation: 0,
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => CameraScreen(userPhone: widget.userPhone))),
+          icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white),
+          label: Text(
+            _lang == "en" ? "SCAN MEAL" : "ಊಟ ಸ್ಕ್ಯಾನ್",
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 15,
+              letterSpacing: 0.5
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Helper for Section Headers
+  Widget _buildSectionHeader(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: AyuTheme.darkGreen),
+        const SizedBox(width: 10),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF2D3142)),
+        ),
+      ],
     );
   }
 }

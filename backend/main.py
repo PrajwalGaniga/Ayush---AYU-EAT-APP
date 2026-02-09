@@ -324,22 +324,7 @@ async def confirm_scan(phone: str, data: dict = Body(...)):
         "ojas_change": ojas_impact
     }
 
-@app.get("/post_meal_status/{phone}")
-async def get_post_meal_questions(phone: str):
-    """
-    The 2-hour feedback questionnaire.
-    """
-    user = await user_collection.find_one({"phone": phone})
-    last_meal = user.get("last_meal", {})
-    
-    return {
-        "message": f"You ate {last_meal.get('item')} from a {last_meal.get('source')} 2 hours ago.",
-        "questions": [
-            "Are you feeling heavy or bloated?",
-            "Is there any acidity or burning sensation?",
-            "Do you feel energetic or sleepy?"
-        ]
-    }
+
 
 import os
 
@@ -762,3 +747,219 @@ async def update_profile(phone: str, profile_data: dict = Body(...)):
         return {"status": "success", "message": "Health Profile Synchronized"}
     
     raise HTTPException(status_code=500, detail="Failed to update database")
+
+# --- ADD THESE IMPORTS AT THE TOP ---
+from datetime import timedelta 
+
+# --- NEW DATA MODELS ---
+class AuditRequest(BaseModel):
+    food_id: str
+    source: str  # "home" or "restaurant"
+
+class ScanSubmission(BaseModel):
+    phone: str
+    food_id: str
+    source: str
+    is_positive: bool  # True = Good Quality (e.g., Fresh), False = Bad Quality (e.g., Stale)
+    other_items: list[str] = []  # List of other food IDs detected in the same plate
+
+# --- ROUTE 1: THE AUDIT DISPATCHER ---
+# Gets the specific "Vaidya Question" for the UI bubble
+@app.post("/get_audit_question")
+async def get_audit_question(request: AuditRequest):
+    item = ayu_db["food_wisdom"].get(request.food_id)
+    
+    if not item:
+        raise HTTPException(status_code=404, detail="Food item not found in knowledge base")
+    
+    audit_data = item.get("deep_audit", {}).get(request.source)
+    
+    if not audit_data:
+        # Fallback if no specific audit exists
+        return {
+            "question": "Does this meal feel fresh and light?",
+            "positive_label": "Yes, Fresh",
+            "negative_label": "No, Heavy"
+        }
+        
+    return {
+        "question": audit_data["question"],
+        "positive_label": audit_data["positive_label"],
+        "negative_label": audit_data["negative_label"]
+    }
+
+# --- ROUTE 2: THE CLINICAL VERDICT ENGINE ---
+# Calculates Ojas, checks Viruddha, and schedules Bio-Feedback
+# main.py
+
+@app.post("/submit_scan_result")
+async def submit_scan_result(data: ScanSubmission):
+    print(f"\n--- 🥗 CLINICAL SCAN: {data.phone} ---")
+    
+    user = await user_collection.find_one({"phone": data.phone})
+    user_prakriti = user.get("prakriti", {}).get("dominant", "Vata")
+    
+    full_plate_ids = [data.food_id] + data.other_items
+    total_ojas_change = 0
+    plate_analysis = []
+    
+    # NEW: Flag to track if ANY item needs a timer
+    any_timer_required = False 
+
+    # 1. Analyze Ingredients (Dosha Impact)
+    for f_id in full_plate_ids:
+        info = ayu_db["food_wisdom"].get(f_id)
+        if not info: continue
+        
+        # Check Dosha
+        is_compatible = True
+        risk_msg = ""
+        if user_prakriti.lower() in info.get("dosha", "").lower() and "aggravating" in info.get("dosha", "").lower():
+            is_compatible = False
+            risk_msg = f"Aggravates {user_prakriti}"
+            total_ojas_change -= 3
+        elif "pacifying" in info.get("dosha", "").lower():
+            total_ojas_change += 2
+            
+        plate_analysis.append({
+            "name": info["name"],
+            "is_compatible": is_compatible,
+            "risk_msg": risk_msg
+        })
+
+        # NEW: Check if THIS item requires a timer in this context
+        item_audit = info.get("deep_audit", {}).get(data.source, {})
+        if item_audit.get("feedback_timer_required", False):
+            any_timer_required = True
+            print(f"⏰ Timer Triggered by: {info['name']}")
+
+    # 2. Apply Source/Quality Audit (Main Item Only)
+    main_item_info = ayu_db["food_wisdom"].get(data.food_id)
+    audit_logic = main_item_info["deep_audit"].get(data.source, {})
+    
+    if data.is_positive:
+        total_ojas_change += audit_logic.get("ojas_bonus", 5)
+        quality_verdict = "Sattvic (Healing)"
+    else:
+        total_ojas_change += audit_logic.get("ojas_penalty", -5)
+        quality_verdict = "Tamasic (Heavy)"
+
+    # 3. Viruddha Check
+    warnings = []
+    current_plate_set = set(full_plate_ids)
+    for rule in ayu_db.get("viruddha_ahara_logic", []):
+        if set(rule["items"]).issubset(current_plate_set):
+            warnings.append(rule["reason"])
+            total_ojas_change -= 10
+            quality_verdict = "Viruddha (Incompatible)"
+
+    # 4. Set Timer based on ANY item flag
+    #feedback_time = datetime.now() + timedelta(hours=2) if any_timer_required else None
+    feedback_time = datetime.now() + timedelta(seconds=10) if any_timer_required else None
+    
+
+    # 5. Database Save
+    meal_entry = {
+        "items": [p["name"] for p in plate_analysis],
+        "source": data.source,
+        "quality": quality_verdict,
+        "ojas_change": total_ojas_change,
+        "timestamp": datetime.now(),
+        "feedback_due": feedback_time,
+        "feedback_collected": False
+    }
+
+    # Update User Ojas
+    current_ojas = user.get("ojas_score", 50)
+    new_ojas = max(0, min(100, current_ojas + total_ojas_change))
+
+    await user_collection.update_one(
+        {"phone": data.phone},
+        {
+            "$push": {"meal_history": meal_entry},
+            "$set": {"last_meal": meal_entry, "ojas_score": new_ojas}
+        }
+    )
+
+    return {
+        "status": "success",
+        "verdict": {
+            "plate_analysis": plate_analysis,
+            "quality": quality_verdict,
+            "ojas_update": total_ojas_change,
+            "warnings": warnings,
+            "new_total_ojas": new_ojas,
+            "timer_set": any_timer_required # Now returns True if ANY item needs it
+        }
+    }
+
+# --- ADD TO main.py ---
+
+# CLINICAL FEEDBACK LOGIC
+FEEDBACK_STRATEGY = {
+    "Kapha": ["Do you feel heavy or lethargic?", "Is there any congestion in the chest?", "Do you feel sleepy?"],
+    "Pitta": ["Do you feel any acidity or burning?", "Are you excessively thirsty?", "Do you feel irritable?"],
+    "Vata": ["Is there any bloating or gas?", "Do you feel dry or constipated?", "Is your mind restless?"],
+    "General": ["How are your energy levels?", "Do you feel satisfied or stuffed?"]
+}
+
+@app.get("/post_meal_status/{phone}")
+async def get_post_meal_questions(phone: str):
+    user = await user_collection.find_one({"phone": phone})
+    last_meal = user.get("last_meal", {})
+    
+    # 1. Check if feedback is actually due
+    feedback_due = last_meal.get("feedback_due")
+    if not feedback_due or last_meal.get("feedback_collected", False):
+        return {"status": "none"} # No feedback needed
+    
+    # Check if 2 hours have passed
+    if datetime.now() < feedback_due:
+        return {"status": "wait", "minutes_left": (feedback_due - datetime.now()).seconds // 60}
+
+    # 2. Generate SMART Questions based on the Food Item
+    food_id = last_meal.get("food_id") # Main item ID
+    item_info = ayu_db["food_wisdom"].get(food_id, {})
+    
+    # Extract Dosha keyword (e.g., "Pitta aggravating" -> "Pitta")
+    dosha_key = "General"
+    if "Pitta" in item_info.get("dosha", ""): dosha_key = "Pitta"
+    elif "Kapha" in item_info.get("dosha", ""): dosha_key = "Kapha"
+    elif "Vata" in item_info.get("dosha", ""): dosha_key = "Vata"
+    
+    questions = FEEDBACK_STRATEGY.get(dosha_key, FEEDBACK_STRATEGY["General"])
+
+    return {
+        "status": "due",
+        "meal_name": last_meal.get("item", "Meal"),
+        "source": last_meal.get("source", "Unknown"),
+        "questions": questions,
+        "dosha_focus": dosha_key
+    }
+
+@app.post("/submit_feedback/{phone}")
+async def submit_feedback(phone: str, data: dict = Body(...)):
+    """
+    Updates the Ojas score retrospectively based on digestion.
+    """
+    feeling = data.get("feeling") # "Good" or "Bad"
+    
+    user = await user_collection.find_one({"phone": phone})
+    current_ojas = user.get("ojas_score", 50)
+    
+    # Clinical Logic: If digestion was bad, apply penalty
+    impact = -5 if feeling == "Bad" else +2
+    new_ojas = max(0, min(100, current_ojas + impact))
+    
+    await user_collection.update_one(
+        {"phone": phone},
+        {
+            "$set": {
+                "ojas_score": new_ojas, 
+                "last_meal.feedback_collected": True,
+                "last_meal.digestion_result": feeling
+            }
+        }
+    )
+    
+    return {"status": "success", "new_ojas": new_ojas}
